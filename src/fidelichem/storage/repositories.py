@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from contextlib import suppress
+from datetime import UTC, datetime
 
-from sqlalchemy import event, select
+from sqlalchemy import event, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Executable
 
+from fidelichem.domain.errors import InvalidStatusTransitionError
 from fidelichem.domain.json import canonical_json
 from fidelichem.domain.models import (
     ActorKind,
@@ -57,6 +60,10 @@ class StorageWriteError(RepositoryError):
 
 class CorruptStoredDataError(RepositoryError):
     """A persisted row cannot be converted into its public domain value."""
+
+
+class RecordNotFoundError(RepositoryError):
+    """A lifecycle operation referenced a missing stored record."""
 
 
 _ROLLBACK_LISTENER_FLAG = "_fidelichem_rollback_listener"
@@ -138,6 +145,26 @@ def _safe_read[ModelT](entity: str, operation: Callable[[], ModelT]) -> ModelT:
         raise
     except Exception:
         raise CorruptStoredDataError(f"stored {entity} data is invalid") from None
+
+
+def _safe_transition_update(
+    session: Session,
+    statement: Executable,
+    *,
+    entity: str,
+) -> int:
+    try:
+        result = session.execute(statement)
+        session.flush()
+    except IntegrityError as error:
+        _fail_transaction(session)
+        raise _safe_integrity_error(error, entity=entity, operation="update") from None
+    except SQLAlchemyError:
+        _fail_transaction(session)
+        raise StorageWriteError(
+            f"{entity} update failed due to a storage error"
+        ) from None
+    return int(getattr(result, "rowcount", 0) or 0)
 
 
 def _project_model(row: _ProjectRow) -> Project:
@@ -260,9 +287,9 @@ class ProjectRepository(_RepositoryBase):
             statement = statement.where(_ProjectRow.id == project_id)
         return _safe_read(
             "project",
-            lambda: (
-                lambda row: None if row is None else _project_model(row)
-            )(session.execute(statement).scalar_one_or_none()),
+            lambda: (lambda row: None if row is None else _project_model(row))(
+                session.execute(statement).scalar_one_or_none()
+            ),
         )
 
 
@@ -296,10 +323,125 @@ class ImportBatchRepository(_RepositoryBase):
         session = self._require_session()
         return _safe_read(
             "import batch",
-            lambda: (
-                lambda row: None if row is None else _batch_model(row)
-            )(session.get(_ImportBatchRow, batch_id)),
+            lambda: (lambda row: None if row is None else _batch_model(row))(
+                session.get(_ImportBatchRow, batch_id)
+            ),
         )
+
+    def complete(
+        self,
+        batch_id: str,
+        *,
+        completed_at: datetime | None = None,
+        expected_status: ImportStatus = ImportStatus.IN_PROGRESS,
+    ) -> ImportBatch:
+        if expected_status is not ImportStatus.IN_PROGRESS:
+            raise InvalidStatusTransitionError(
+                "completed transition requires an in-progress batch"
+            )
+        return self._transition(
+            batch_id,
+            expected_statuses=(expected_status,),
+            new_status=ImportStatus.COMPLETED,
+            completed_at=completed_at or datetime.now(UTC),
+        )
+
+    def fail(
+        self,
+        batch_id: str,
+        *,
+        completed_at: datetime | None = None,
+        expected_status: ImportStatus = ImportStatus.IN_PROGRESS,
+    ) -> ImportBatch:
+        if expected_status is not ImportStatus.IN_PROGRESS:
+            raise InvalidStatusTransitionError(
+                "failed transition requires an in-progress batch"
+            )
+        return self._transition(
+            batch_id,
+            expected_statuses=(expected_status,),
+            new_status=ImportStatus.FAILED,
+            completed_at=completed_at or datetime.now(UTC),
+        )
+
+    def rollback(
+        self,
+        batch_id: str,
+        *,
+        rolled_back_at: datetime | None = None,
+        rollback_reason: str | None = None,
+        expected_statuses: tuple[ImportStatus, ...] = (
+            ImportStatus.COMPLETED,
+            ImportStatus.FAILED,
+        ),
+    ) -> ImportBatch:
+        session = self._require_session()
+        current = self._current_batch(session, batch_id)
+        if current.status is ImportStatus.ROLLED_BACK:
+            return current
+        allowed_statuses = tuple(
+            status
+            for status in expected_statuses
+            if status in (ImportStatus.COMPLETED, ImportStatus.FAILED)
+        )
+        if current.status not in allowed_statuses:
+            raise InvalidStatusTransitionError(
+                f"cannot roll back import batch from {current.status.value}"
+            )
+        return self._transition(
+            batch_id,
+            expected_statuses=(current.status,),
+            new_status=ImportStatus.ROLLED_BACK,
+            rolled_back_at=rolled_back_at or datetime.now(UTC),
+            rollback_reason=rollback_reason,
+        )
+
+    def _current_batch(self, session: Session, batch_id: str) -> ImportBatch:
+        row = session.get(_ImportBatchRow, batch_id)
+        if row is None:
+            raise RecordNotFoundError("import batch was not found")
+        return _batch_model(row)
+
+    def _transition(
+        self,
+        batch_id: str,
+        *,
+        expected_statuses: tuple[ImportStatus, ...],
+        new_status: ImportStatus,
+        completed_at: datetime | None = None,
+        rolled_back_at: datetime | None = None,
+        rollback_reason: str | None = None,
+    ) -> ImportBatch:
+        session = self._require_session()
+        current = self._current_batch(session, batch_id)
+        if current.status not in expected_statuses:
+            raise InvalidStatusTransitionError(
+                f"cannot transition import batch from {current.status.value}"
+            )
+        values: dict[str, object] = {"status": new_status.value}
+        if completed_at is not None:
+            values["completed_at"] = completed_at
+        if new_status is ImportStatus.ROLLED_BACK:
+            values["rolled_back_at"] = rolled_back_at
+            values["rollback_reason"] = rollback_reason
+        statement = (
+            update(_ImportBatchRow)
+            .where(
+                _ImportBatchRow.id == batch_id,
+                _ImportBatchRow.status.in_(
+                    [status.value for status in expected_statuses]
+                ),
+            )
+            .values(**values)
+        )
+        if _safe_transition_update(session, statement, entity="import batch") != 1:
+            raise InvalidStatusTransitionError(
+                "import batch changed before lifecycle transition"
+            )
+        row = session.get(_ImportBatchRow, batch_id)
+        if row is None:
+            raise RecordNotFoundError("import batch was not found")
+        return _batch_model(row)
 
 
 class SourceArtifactRepository(_RepositoryBase):
@@ -327,9 +469,9 @@ class SourceArtifactRepository(_RepositoryBase):
         session = self._require_session()
         return _safe_read(
             "source artifact",
-            lambda: (
-                lambda row: None if row is None else _artifact_model(row)
-            )(session.get(_SourceArtifactRow, artifact_id)),
+            lambda: (lambda row: None if row is None else _artifact_model(row))(
+                session.get(_SourceArtifactRow, artifact_id)
+            ),
         )
 
     def list_by_batch(self, batch_id: str) -> tuple[SourceArtifact, ...]:
@@ -378,9 +520,9 @@ class AuditRepository(_RepositoryBase):
         session = self._require_session()
         return _safe_read(
             "audit event",
-            lambda: (
-                lambda row: None if row is None else _audit_model(row)
-            )(session.get(_AuditEventRow, event_id)),
+            lambda: (lambda row: None if row is None else _audit_model(row))(
+                session.get(_AuditEventRow, event_id)
+            ),
         )
 
     def list_events(
@@ -403,8 +545,7 @@ class AuditRepository(_RepositoryBase):
         return _safe_read(
             "audit event",
             lambda: tuple(
-                _audit_model(row)
-                for row in session.execute(statement).scalars().all()
+                _audit_model(row) for row in session.execute(statement).scalars().all()
             ),
         )
 
@@ -421,6 +562,7 @@ __all__ = [
     "ForeignKeyViolationError",
     "ImportBatchRepository",
     "ProjectRepository",
+    "RecordNotFoundError",
     "RepositoryError",
     "SourceArtifactRepository",
     "StorageIntegrityError",
