@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 1 — Domain model + storage**
-- Etapa ativa: gate independente da Fase 1 após Task 5
-- Próxima ação exata: executar a revisão Terra da Fase 1 sobre os commits das Tasks 1–5; não marcar a fase como concluída antes da revisão.
+- Etapa ativa: revisão independente do diff integral da Fase 1
+- Próxima ação exata: revisar `b24fa72..HEAD` como um todo; corrigir e rever todo finding Critical/Important antes de concluir a fase.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -36,14 +36,15 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Último gate verificado
 
-Fase 0, em 2026-08-20:
+Fase 1, antes da revisão integral, em 2026-08-20:
 
-- `pytest`: 23 testes aprovados;
-- cobertura de branches: 91,35%;
+- `pytest`: 160 testes aprovados;
+- cobertura global de branches: 89,46%;
+- cobertura scoped de `domain/provenance/storage/projects`: 89,29%;
 - Ruff e mypy: aprovados;
 - `uv lock`, build e `pip check`: aprovados;
-- `pip-audit`: nenhuma vulnerabilidade conhecida nas dependências;
-- CLI: ambas as entradas retornam a versão `0.1.0`.
+- `pip-audit`: nenhuma vulnerabilidade conhecida nas dependências publicadas;
+- working tree e `git diff --check`: limpos.
 
 ## Decisões congeladas da Fase 1
 
@@ -108,11 +109,12 @@ Fase 0, em 2026-08-20:
 
 ### Task 5 — projeto persistente e layout seguro
 
-- Estado: concluída; revisão independente da Fase 1 pendente.
-- Commit: `14f2a77` (`feat: create persistent FideliChem projects`).
-- Resultado: 157 testes aprovados na suíte completa; 25 testes focados de
-  projetos; cobertura global de branches 89,29% e cobertura scoped de
-  `domain/provenance/storage/projects` de 89,10%.
+- Estado: concluída e aprovada em re-review independente; revisão integral da Fase 1 pendente.
+- Commits: `14f2a77` (implementação), `73af3a2` (checkpoint) e `9a726c7`
+  (manifest estrito e layout canônico).
+- Resultado: 160 testes aprovados na suíte completa; 28 testes focados de
+  projetos; cobertura global de branches 89,46% e cobertura scoped de
+  `domain/provenance/storage/projects` de 89,29%.
 - Gate: `uv lock --check`, Ruff, mypy, `pip-audit`, build, `uv pip check` e
   `git diff --check` aprovados; `pip-audit` não audita o pacote local
   `fidelichem` por ele não estar publicado no PyPI.
@@ -120,6 +122,8 @@ Fase 0, em 2026-08-20:
   UTF-8 canônico, migration Alembic, modo read-only, IDs estáveis, Unicode,
   recusa de conflitos e caminhos inseguros, cleanup limitado em falhas e
   round-trip E2E de batch, artifact, complete, rollback e audit.
+- Findings corrigidos: caminho alternativo do banco dentro da raiz e
+  `schema_version` booleano aceito como inteiro.
 - Riscos residuais: o manifest permanece deliberadamente mínimo (ID, nome,
   schema e arquivo relativo do banco); adapters e portabilidade física ficam
   para fases posteriores.
