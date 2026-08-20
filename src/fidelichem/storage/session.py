@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from types import TracebackType
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from sqlalchemy import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 if TYPE_CHECKING:
@@ -17,7 +19,12 @@ if TYPE_CHECKING:
         SourceArtifactRepository,
     )
 
+
+class _RepositoryLifecycle(Protocol):
+    def _deactivate(self) -> None: ...
+
 type SessionFactory = sessionmaker[Session]
+TRANSACTION_FAILED_FLAG = "_fidelichem_transaction_failed"
 
 
 class StorageError(RuntimeError):
@@ -63,6 +70,7 @@ class UnitOfWork:
         )
         self._session: Session | None = None
         self._used = False
+        self._repositories: tuple[_RepositoryLifecycle, ...] = ()
 
     if TYPE_CHECKING:
         projects: ProjectRepository
@@ -84,10 +92,16 @@ class UnitOfWork:
             self._session = self._session_factory()
             self._session.begin()
             self._install_repositories()
+        except SQLAlchemyError:
+            if self._session is not None:
+                self._rollback_quietly(self._session)
+                self._close_quietly(self._session)
+                self._session = None
+            raise UnitOfWorkError("could not begin storage transaction") from None
         except BaseException:
             if self._session is not None:
-                self._session.rollback()
-                self._session.close()
+                self._rollback_quietly(self._session)
+                self._close_quietly(self._session)
                 self._session = None
             raise
         return self
@@ -107,16 +121,12 @@ class UnitOfWork:
         self.import_batches = ImportBatchRepository(session)
         self.source_artifacts = SourceArtifactRepository(session)
         self.audit_events = AuditRepository(session)
-        # Singular aliases make the boundary convenient without hiding the
-        # entity-specific repository classes.
-        self.project = self.projects
-        self.import_batch = self.import_batches
-        self.source_artifact = self.source_artifacts
-        self.audit = self.audit_events
-        self.project_repository = self.projects
-        self.import_batch_repository = self.import_batches
-        self.source_artifact_repository = self.source_artifacts
-        self.audit_repository = self.audit_events
+        self._repositories = (
+            self.projects,
+            self.import_batches,
+            self.source_artifacts,
+            self.audit_events,
+        )
 
     def __exit__(
         self,
@@ -129,24 +139,40 @@ class UnitOfWork:
         if session is None:
             return False
         try:
-            if exc_type is None:
-                try:
-                    session.commit()
-                except BaseException:
-                    session.rollback()
-                    raise
-            else:
-                session.rollback()
+            if exc_type is not None:
+                self._rollback_quietly(session)
+                return False
+            if session.info.get(TRANSACTION_FAILED_FLAG, False):
+                self._rollback_quietly(session)
+                raise UnitOfWorkError("storage transaction failed and was rolled back")
+            try:
+                session.commit()
+            except SQLAlchemyError:
+                self._rollback_quietly(session)
+                raise UnitOfWorkError("could not commit storage transaction") from None
         finally:
-            session.close()
+            for repository in self._repositories:
+                repository._deactivate()
+            self._close_quietly(session)
             self._session = None
         del exc_value
         return False
+
+    @staticmethod
+    def _rollback_quietly(session: Session) -> None:
+        with suppress(BaseException):
+            session.rollback()
+
+    @staticmethod
+    def _close_quietly(session: Session) -> None:
+        with suppress(BaseException):
+            session.close()
 
 
 __all__ = [
     "SessionFactory",
     "StorageError",
+    "TRANSACTION_FAILED_FLAG",
     "UnitOfWork",
     "UnitOfWorkError",
     "create_session_factory",

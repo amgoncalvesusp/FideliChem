@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from contextlib import suppress
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from fidelichem.domain.json import canonical_json
@@ -24,7 +26,7 @@ from .orm import (
     _ProjectRow,
     _SourceArtifactRow,
 )
-from .session import StorageError
+from .session import TRANSACTION_FAILED_FLAG, StorageError, UnitOfWorkError
 
 
 class RepositoryError(StorageError):
@@ -41,6 +43,14 @@ class ForeignKeyViolationError(RepositoryError):
 
 class StorageIntegrityError(RepositoryError):
     """A database integrity rule rejected a repository write."""
+
+
+class StorageWriteError(RepositoryError):
+    """A non-integrity database failure rejected a repository write."""
+
+
+class CorruptStoredDataError(RepositoryError):
+    """A persisted row cannot be converted into its public domain value."""
 
 
 def _safe_integrity_error(
@@ -68,78 +78,132 @@ def _flush(session: Session, row: object, *, entity: str, operation: str) -> Non
         session.add(row)
         session.flush()
     except IntegrityError as error:
-        # Do not call rollback here.  The unit of work must own the complete
-        # rollback so earlier writes in the same operation are also undone.
+        _fail_transaction(session)
         raise _safe_integrity_error(error, entity=entity, operation=operation) from None
+    except SQLAlchemyError:
+        _fail_transaction(session)
+        raise StorageWriteError(
+            f"{entity} {operation} failed due to a storage error"
+        ) from None
+
+
+def _fail_transaction(session: Session) -> None:
+    session.info[TRANSACTION_FAILED_FLAG] = True
+    with suppress(BaseException):
+        session.rollback()
+
+
+def _safe_read[ModelT](entity: str, operation: Callable[[], ModelT]) -> ModelT:
+    try:
+        return operation()
+    except CorruptStoredDataError:
+        raise
+    except Exception:
+        raise CorruptStoredDataError(f"stored {entity} data is invalid") from None
 
 
 def _project_model(row: _ProjectRow) -> Project:
-    return Project(
-        id=row.id,
-        name=row.name,
-        description=row.description,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        schema_version=row.schema_version,
+    return _safe_read(
+        "project",
+        lambda: Project(
+            id=row.id,
+            name=row.name,
+            description=row.description,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            schema_version=row.schema_version,
+        ),
     )
 
 
 def _batch_model(row: _ImportBatchRow) -> ImportBatch:
-    parsed_warnings = json.loads(row.warnings_json)
-    return ImportBatch(
-        id=row.id,
-        project_id=row.project_id,
-        adapter_id=row.adapter_id,
-        adapter_version=row.adapter_version,
-        started_at=row.started_at,
-        completed_at=row.completed_at,
-        status=ImportStatus(row.status),
-        source_root=row.source_root,
-        file_count=row.file_count,
-        input_hash=row.input_hash,
-        warnings=tuple(parsed_warnings),
-        rolled_back_at=row.rolled_back_at,
-        rollback_reason=row.rollback_reason,
-    )
+    def convert() -> ImportBatch:
+        parsed_warnings = json.loads(row.warnings_json)
+        if not isinstance(parsed_warnings, list) or not all(
+            isinstance(item, str) for item in parsed_warnings
+        ):
+            raise ValueError("warnings must be a JSON string array")
+        return ImportBatch(
+            id=row.id,
+            project_id=row.project_id,
+            adapter_id=row.adapter_id,
+            adapter_version=row.adapter_version,
+            started_at=row.started_at,
+            completed_at=row.completed_at,
+            status=ImportStatus(row.status),
+            source_root=row.source_root,
+            file_count=row.file_count,
+            input_hash=row.input_hash,
+            warnings=tuple(parsed_warnings),
+            rolled_back_at=row.rolled_back_at,
+            rollback_reason=row.rollback_reason,
+        )
+
+    return _safe_read("import batch", convert)
 
 
 def _artifact_model(row: _SourceArtifactRow) -> SourceArtifact:
-    return SourceArtifact(
-        id=row.id,
-        import_batch_id=row.import_batch_id,
-        path=row.path,
-        relative_path=row.relative_path,
-        sha256=row.sha256,
-        file_type=row.file_type,
-        size_bytes=row.size_bytes,
-        mtime=row.mtime,
+    return _safe_read(
+        "source artifact",
+        lambda: SourceArtifact(
+            id=row.id,
+            import_batch_id=row.import_batch_id,
+            path=row.path,
+            relative_path=row.relative_path,
+            sha256=row.sha256,
+            file_type=row.file_type,
+            size_bytes=row.size_bytes,
+            mtime=row.mtime,
+        ),
     )
 
 
 def _audit_model(row: _AuditEventRow) -> AuditEvent:
-    return AuditEvent(
-        id=row.id,
-        sequence=row.sequence,
-        timestamp=row.timestamp,
-        action=row.action,
-        entity_type=row.entity_type,
-        entity_id=row.entity_id,
-        import_batch_id=row.import_batch_id,
-        old_value_json=row.old_value_json,
-        new_value_json=row.new_value_json,
-        source=row.source,
-        actor_kind=ActorKind(row.actor_kind),
-        actor_id=row.actor_id,
+    return _safe_read(
+        "audit event",
+        lambda: AuditEvent(
+            id=row.id,
+            sequence=row.sequence,
+            timestamp=row.timestamp,
+            action=row.action,
+            entity_type=row.entity_type,
+            entity_id=row.entity_id,
+            import_batch_id=row.import_batch_id,
+            old_value_json=row.old_value_json,
+            new_value_json=row.new_value_json,
+            source=row.source,
+            actor_kind=ActorKind(row.actor_kind),
+            actor_id=row.actor_id,
+        ),
     )
 
 
-class ProjectRepository:
+class _RepositoryBase:
+    """Session-bound repository lifecycle shared by concrete repositories."""
+
+    def __init__(self, session: Session):
+        self._session: Session | None = session
+
+    def _require_session(self) -> Session:
+        session = self._session
+        if session is None:
+            raise UnitOfWorkError("repository is inactive")
+        if session.info.get(TRANSACTION_FAILED_FLAG, False):
+            raise UnitOfWorkError("repository transaction has failed")
+        return session
+
+    def _deactivate(self) -> None:
+        self._session = None
+
+
+class ProjectRepository(_RepositoryBase):
     """Create and read the singleton project row."""
 
     def __init__(self, session: Session):
-        self._session = session
+        super().__init__(session)
 
     def add(self, project: Project) -> Project:
+        session = self._require_session()
         row = _ProjectRow(
             id=project.id,
             name=project.name,
@@ -148,24 +212,30 @@ class ProjectRepository:
             updated_at=project.updated_at,
             schema_version=project.schema_version,
         )
-        _flush(self._session, row, entity="project", operation="insert")
+        _flush(session, row, entity="project", operation="insert")
         return _project_model(row)
 
     def get(self, project_id: str | None = None) -> Project | None:
+        session = self._require_session()
         statement = select(_ProjectRow)
         if project_id is not None:
             statement = statement.where(_ProjectRow.id == project_id)
-        row = self._session.execute(statement).scalar_one_or_none()
-        return None if row is None else _project_model(row)
+        return _safe_read(
+            "project",
+            lambda: (
+                lambda row: None if row is None else _project_model(row)
+            )(session.execute(statement).scalar_one_or_none()),
+        )
 
 
-class ImportBatchRepository:
+class ImportBatchRepository(_RepositoryBase):
     """Create and read immutable import-batch identity and provenance."""
 
     def __init__(self, session: Session):
-        self._session = session
+        super().__init__(session)
 
     def add(self, batch: ImportBatch) -> ImportBatch:
+        session = self._require_session()
         row = _ImportBatchRow(
             id=batch.id,
             project_id=batch.project_id,
@@ -181,21 +251,27 @@ class ImportBatchRepository:
             rolled_back_at=batch.rolled_back_at,
             rollback_reason=batch.rollback_reason,
         )
-        _flush(self._session, row, entity="import batch", operation="insert")
+        _flush(session, row, entity="import batch", operation="insert")
         return _batch_model(row)
 
     def get(self, batch_id: str) -> ImportBatch | None:
-        row = self._session.get(_ImportBatchRow, batch_id)
-        return None if row is None else _batch_model(row)
+        session = self._require_session()
+        return _safe_read(
+            "import batch",
+            lambda: (
+                lambda row: None if row is None else _batch_model(row)
+            )(session.get(_ImportBatchRow, batch_id)),
+        )
 
 
-class SourceArtifactRepository:
+class SourceArtifactRepository(_RepositoryBase):
     """Append-only source-artifact repository."""
 
     def __init__(self, session: Session):
-        self._session = session
+        super().__init__(session)
 
     def add(self, artifact: SourceArtifact) -> SourceArtifact:
+        session = self._require_session()
         row = _SourceArtifactRow(
             id=artifact.id,
             import_batch_id=artifact.import_batch_id,
@@ -206,30 +282,42 @@ class SourceArtifactRepository:
             size_bytes=artifact.size_bytes,
             mtime=artifact.mtime,
         )
-        _flush(self._session, row, entity="source artifact", operation="insert")
+        _flush(session, row, entity="source artifact", operation="insert")
         return _artifact_model(row)
 
     def get(self, artifact_id: str) -> SourceArtifact | None:
-        row = self._session.get(_SourceArtifactRow, artifact_id)
-        return None if row is None else _artifact_model(row)
+        session = self._require_session()
+        return _safe_read(
+            "source artifact",
+            lambda: (
+                lambda row: None if row is None else _artifact_model(row)
+            )(session.get(_SourceArtifactRow, artifact_id)),
+        )
 
     def list_by_batch(self, batch_id: str) -> tuple[SourceArtifact, ...]:
+        session = self._require_session()
         statement = (
             select(_SourceArtifactRow)
             .where(_SourceArtifactRow.import_batch_id == batch_id)
             .order_by(_SourceArtifactRow.relative_path, _SourceArtifactRow.id)
         )
-        rows = self._session.execute(statement).scalars().all()
-        return tuple(_artifact_model(row) for row in rows)
+        return _safe_read(
+            "source artifact",
+            lambda: tuple(
+                _artifact_model(row)
+                for row in session.execute(statement).scalars().all()
+            ),
+        )
 
 
-class AuditRepository:
+class AuditRepository(_RepositoryBase):
     """Append-only audit-event repository with DB-generated ordering."""
 
     def __init__(self, session: Session):
-        self._session = session
+        super().__init__(session)
 
     def add(self, event: AuditEvent) -> AuditEvent:
+        session = self._require_session()
         row = _AuditEventRow(
             id=event.id,
             # Sequence is intentionally omitted: SQLite owns its ordering.
@@ -244,13 +332,18 @@ class AuditRepository:
             actor_kind=event.actor_kind.value,
             actor_id=event.actor_id,
         )
-        _flush(self._session, row, entity="audit event", operation="insert")
-        self._session.refresh(row)
+        _flush(session, row, entity="audit event", operation="insert")
+        session.refresh(row)
         return _audit_model(row)
 
     def get(self, event_id: str) -> AuditEvent | None:
-        row = self._session.get(_AuditEventRow, event_id)
-        return None if row is None else _audit_model(row)
+        session = self._require_session()
+        return _safe_read(
+            "audit event",
+            lambda: (
+                lambda row: None if row is None else _audit_model(row)
+            )(session.get(_AuditEventRow, event_id)),
+        )
 
     def list_events(
         self,
@@ -259,6 +352,7 @@ class AuditRepository:
         entity_type: str | None = None,
         entity_id: str | None = None,
     ) -> tuple[AuditEvent, ...]:
+        session = self._require_session()
         statement = select(_AuditEventRow).order_by(_AuditEventRow.sequence)
         if import_batch_id is not None:
             statement = statement.where(
@@ -268,8 +362,13 @@ class AuditRepository:
             statement = statement.where(_AuditEventRow.entity_type == entity_type)
         if entity_id is not None:
             statement = statement.where(_AuditEventRow.entity_id == entity_id)
-        rows = self._session.execute(statement).scalars().all()
-        return tuple(_audit_model(row) for row in rows)
+        return _safe_read(
+            "audit event",
+            lambda: tuple(
+                _audit_model(row)
+                for row in session.execute(statement).scalars().all()
+            ),
+        )
 
     def list_by_batch(self, batch_id: str) -> tuple[AuditEvent, ...]:
         """Return audit history correlated with one import batch."""
@@ -279,6 +378,7 @@ class AuditRepository:
 
 __all__ = [
     "AuditRepository",
+    "CorruptStoredDataError",
     "DuplicateRecordError",
     "ForeignKeyViolationError",
     "ImportBatchRepository",
@@ -286,4 +386,5 @@ __all__ = [
     "RepositoryError",
     "SourceArtifactRepository",
     "StorageIntegrityError",
+    "StorageWriteError",
 ]

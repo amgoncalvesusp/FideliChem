@@ -14,6 +14,7 @@ from fidelichem.domain.models import (
     SourceArtifact,
 )
 from fidelichem.storage.repositories import (
+    CorruptStoredDataError,
     DuplicateRecordError,
     ForeignKeyViolationError,
     ProjectRepository,
@@ -204,3 +205,134 @@ def test_session_factory_accepts_migrated_engine(migrated_engine) -> None:
     # to the factory without depending on SQLAlchemy's sessionmaker details.
     factory = create_session_factory(migrated_engine)
     assert factory is not None
+
+
+def test_corrupt_project_row_is_a_safe_domain_error(migrated_engine) -> None:
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text(
+                "INSERT INTO project "
+                "(id,name,description,created_at,updated_at,schema_version) "
+                "VALUES (:id,:name,:description,:created_at,:updated_at,:version)"
+            ),
+            {
+                "id": "not-a-uuid",
+                "name": "Project",
+                "description": None,
+                "created_at": "not-a-timestamp",
+                "updated_at": "not-a-timestamp",
+                "version": 1,
+            },
+        )
+        connection.commit()
+
+    with (
+        pytest.raises(CorruptStoredDataError, match="stored project"),
+        UnitOfWork(migrated_engine) as uow,
+    ):
+        uow.projects.get()
+
+
+def test_corrupt_batch_warnings_are_a_safe_domain_error(migrated_engine) -> None:
+    project = _project()
+    batch = _batch(project)
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+
+    with migrated_engine.connect() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO import_batch "
+                "(id,project_id,adapter_id,adapter_version,started_at,status,"
+                "source_root,file_count,input_hash,warnings_json) "
+                "VALUES (:id,:project_id,:adapter_id,:adapter_version,:started_at,"
+                ":status,:source_root,:file_count,:input_hash,:warnings_json)"
+            ),
+            {
+                "id": batch.id,
+                "project_id": project.id,
+                "adapter_id": batch.adapter_id,
+                "adapter_version": batch.adapter_version,
+                "started_at": NOW.isoformat().replace("+00:00", "Z"),
+                "status": batch.status.value,
+                "source_root": batch.source_root,
+                "file_count": 0,
+                "input_hash": None,
+                "warnings_json": "null",
+            },
+        )
+        connection.commit()
+
+    with (
+        pytest.raises(CorruptStoredDataError, match="stored import batch"),
+        UnitOfWork(migrated_engine) as uow,
+    ):
+        uow.import_batches.get(batch.id)
+
+
+def test_corrupt_artifact_id_is_a_safe_domain_error(migrated_engine) -> None:
+    project = _project()
+    batch = _batch(project)
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text(
+                "INSERT INTO source_artifact "
+                "(id,import_batch_id,path,relative_path,sha256,file_type,size_bytes,"
+                "mtime) "
+                "VALUES (:id,:batch,:path,:relative_path,:sha256,:file_type,:size,"
+                ":mtime)"
+            ),
+            {
+                "id": "not-a-uuid",
+                "batch": batch.id,
+                "path": "input.sdf",
+                "relative_path": "input.sdf",
+                "sha256": "bad",
+                "file_type": "sdf",
+                "size": 0,
+                "mtime": NOW.isoformat().replace("+00:00", "Z"),
+            },
+        )
+        connection.commit()
+
+    with (
+        pytest.raises(CorruptStoredDataError, match="stored source artifact"),
+        UnitOfWork(migrated_engine) as uow,
+    ):
+        uow.source_artifacts.get("not-a-uuid")
+
+
+def test_corrupt_audit_actor_is_a_safe_domain_error(migrated_engine) -> None:
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text(
+                "INSERT INTO audit_event "
+                "(id,sequence,timestamp,action,entity_type,entity_id,source,"
+                "actor_kind) "
+                "VALUES (:id,NULL,:timestamp,:action,:entity_type,:entity_id,"
+                ":source,:actor)"
+            ),
+            {
+                "id": "not-a-uuid",
+                "timestamp": NOW.isoformat().replace("+00:00", "Z"),
+                "action": "test",
+                "entity_type": "project",
+                "entity_id": "not-a-uuid",
+                "source": "test",
+                "actor": "robot",
+            },
+        )
+        connection.commit()
+
+    with (
+        pytest.raises(CorruptStoredDataError, match="stored audit event"),
+        UnitOfWork(migrated_engine) as uow,
+    ):
+        uow.audit_events.get("not-a-uuid")
