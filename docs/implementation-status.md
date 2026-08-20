@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 1 — Domain model + storage**
-- Etapa ativa: revisão independente do diff integral da Fase 1
-- Próxima ação exata: revisar `b24fa72..HEAD` como um todo; corrigir e rever todo finding Critical/Important antes de concluir a fase.
+- Etapa ativa: correções obrigatórias do primeiro review integral da Fase 1
+- Próxima ação exata: implementar por TDD os três findings Important e o Minor listados abaixo, executar o gate completo e submeter um novo review integral.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -129,6 +129,20 @@ Fase 1, antes da revisão integral, em 2026-08-20:
   para fases posteriores.
 - Próxima ação: revisão Terra independente da Fase 1; somente após findings
   críticos/importantes resolvidos atualizar o estado da fase.
+
+### Review integral da Fase 1 — rodada 1
+
+- Estado: **NO-GO**; nenhum Critical, três Important e um Minor.
+- Important 1: adicionar atualização de metadados de `Project` com guarda
+  otimista e `AuditEvent` atômico no mesmo unit of work.
+- Important 2: rejeitar booleanos nos campos inteiros públicos
+  `schema_version`, `file_count`, `size_bytes` e `sequence`.
+- Important 3: impedir por constraint SQLite representações não canônicas de
+  `relative_path`, como `a//b`, que hoje podem duplicar o mesmo path lógico.
+- Minor incluído no round: distinguir falha operacional de leitura de linha
+  persistida corrompida sem expor SQL.
+- Ponto de partida das correções: `1fc65e1`; writer TDD ativo e checkpoint
+  documental reservado ao controller.
 
 ## Convenções de continuidade
 
