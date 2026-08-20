@@ -21,6 +21,10 @@ class InvalidHashError(DomainValidationError):
     """A digest is not a lowercase hexadecimal SHA-256 value."""
 
 
+class InvalidJsonError(DomainValidationError):
+    """JSON is malformed, non-finite, or contains duplicate object keys."""
+
+
 class UnsafePathError(DomainValidationError):
     """A relative path could escape its project root or is not POSIX-like."""
 

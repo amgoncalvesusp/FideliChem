@@ -20,7 +20,11 @@ def validate_id(value: object) -> str:
         parsed = UUID(value)
     except (ValueError, AttributeError, TypeError) as exc:
         raise InvalidIdentifierError("identifier must be a UUID4 string") from exc
-    if parsed.version != 4 or parsed.variant != RFC_4122:
+    if (
+        value != str(parsed)
+        or parsed.version != 4
+        or parsed.variant != RFC_4122
+    ):
         raise InvalidIdentifierError("identifier must be a UUID4 string")
     return str(parsed)
 

@@ -149,6 +149,7 @@ def test_source_artifact_rejects_unsafe_paths_hashes_and_sizes() -> None:
         mtime=NOW,
     )
     assert artifact.relative_path == "ligands/ligand.sdf"
+    assert artifact.mtime == NOW
     assert artifact.size_bytes == 0
 
     for path in (
@@ -206,8 +207,8 @@ def test_audit_event_preserves_null_zero_false_and_empty_json_strings() -> None:
         entity_type="import_batch",
         entity_id=identifier(),
         import_batch_id=None,
-        old_values="null",
-        new_values='{"count":0,"enabled":false,"label":""}',
+        old_value_json="null",
+        new_value_json='{"count":0,"enabled":false,"label":""}',
         source="test",
         actor_kind=ActorKind.SYSTEM,
         actor_id=None,
@@ -215,7 +216,81 @@ def test_audit_event_preserves_null_zero_false_and_empty_json_strings() -> None:
     )
 
     assert event.import_batch_id is None
-    assert event.old_values == "null"
-    assert event.new_values == '{"count":0,"enabled":false,"label":""}'
+    assert event.old_value_json == "null"
+    assert event.new_value_json == '{"count":0,"enabled":false,"label":""}'
     assert event.sequence == 0
     assert event.actor_id is None
+
+
+def test_source_artifact_round_trips_with_only_mtime_public_name() -> None:
+    artifact = SourceArtifact(
+        import_batch_id=identifier(),
+        path="source/file.sdf",
+        relative_path="file.sdf",
+        sha256=HASH,
+        file_type="sdf",
+        size_bytes=0,
+        mtime=NOW,
+    )
+
+    dumped = artifact.model_dump()
+    assert "mtime" in dumped
+    assert "modified_at" not in dumped
+    assert SourceArtifact.model_validate(dumped) == artifact
+    assert SourceArtifact.model_validate_json(artifact.model_dump_json()) == artifact
+    assert "mtime" in SourceArtifact.model_json_schema()["properties"]
+    assert "modified_at" not in SourceArtifact.model_json_schema()["properties"]
+
+
+def test_audit_event_round_trips_with_singular_json_names() -> None:
+    event = AuditEvent(
+        timestamp=NOW,
+        action="import.completed",
+        entity_type="import_batch",
+        entity_id=identifier(),
+        old_value_json=None,
+        new_value_json="null",
+        source="test",
+    )
+
+    dumped = event.model_dump()
+    assert "old_value_json" in dumped
+    assert "new_value_json" in dumped
+    assert "old_values" not in dumped
+    assert "new_values" not in dumped
+    assert AuditEvent.model_validate(dumped) == event
+    assert AuditEvent.model_validate_json(event.model_dump_json()) == event
+    properties = AuditEvent.model_json_schema()["properties"]
+    assert "old_value_json" in properties
+    assert "new_value_json" in properties
+    assert "old_values" not in properties
+    assert "new_values" not in properties
+
+
+@pytest.mark.parametrize("field", ["modified_at"])
+def test_source_artifact_rejects_legacy_public_names(field: str) -> None:
+    with pytest.raises(ValidationError, match=field):
+        SourceArtifact(
+            import_batch_id=identifier(),
+            path="source/file.sdf",
+            relative_path="file.sdf",
+            sha256=HASH,
+            file_type="sdf",
+            size_bytes=0,
+            **{field: NOW},
+        )
+
+
+@pytest.mark.parametrize(
+    "field", ["old_values", "new_values", "old_values_json", "new_values_json"]
+)
+def test_audit_event_rejects_legacy_public_names(field: str) -> None:
+    with pytest.raises(ValidationError, match=field):
+        AuditEvent(
+            timestamp=NOW,
+            action="import.completed",
+            entity_type="import_batch",
+            entity_id=identifier(),
+            source="test",
+            **{field: "null"},
+        )

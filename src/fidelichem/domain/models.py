@@ -10,7 +10,6 @@ from typing import Annotated
 
 from pydantic import (
     AfterValidator,
-    AliasChoices,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -131,19 +130,10 @@ class SourceArtifact(DomainModel):
     sha256: Sha256Digest
     file_type: str
     size_bytes: int = Field(ge=0)
-    mtime: UtcTimestamp = Field(
-        validation_alias=AliasChoices("mtime", "modified_at")
-    )
+    mtime: UtcTimestamp
 
     _path_not_blank = field_validator("path")(_non_blank)
     _file_type_not_blank = field_validator("file_type")(_non_blank)
-
-    @property
-    def modified_at(self) -> datetime:
-        """Compatibility accessor for callers using the descriptive name."""
-
-        return self.mtime
-
 
 class AuditEvent(DomainModel):
     id: OpaqueId = Field(default_factory=new_id)
@@ -153,14 +143,8 @@ class AuditEvent(DomainModel):
     entity_type: str
     entity_id: str
     import_batch_id: OpaqueId | None = None
-    old_values: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("old_values", "old_values_json"),
-    )
-    new_values: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("new_values", "new_values_json"),
-    )
+    old_value_json: str | None = None
+    new_value_json: str | None = None
     source: str
     actor_kind: ActorKind = ActorKind.SYSTEM
     actor_id: str | None = None
@@ -169,12 +153,4 @@ class AuditEvent(DomainModel):
     _entity_type_not_blank = field_validator("entity_type")(_non_blank)
     _entity_id_not_blank = field_validator("entity_id")(_non_blank)
     _source_not_blank = field_validator("source")(_non_blank)
-    _old_values_json = field_validator("old_values", "new_values")(_json_text)
-
-    @property
-    def old_values_json(self) -> str | None:
-        return self.old_values
-
-    @property
-    def new_values_json(self) -> str | None:
-        return self.new_values
+    _old_value_json = field_validator("old_value_json", "new_value_json")(_json_text)
