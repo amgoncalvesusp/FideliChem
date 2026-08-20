@@ -24,7 +24,9 @@ class _RepositoryLifecycle(Protocol):
     def _deactivate(self) -> None: ...
 
 type SessionFactory = sessionmaker[Session]
+UNIT_OF_WORK_FLAG = "_fidelichem_unit_of_work"
 TRANSACTION_FAILED_FLAG = "_fidelichem_transaction_failed"
+UNIT_OF_WORK_FAILED_FLAG = "_fidelichem_unit_of_work_failed"
 
 
 class StorageError(RuntimeError):
@@ -90,6 +92,7 @@ class UnitOfWork:
         self._used = True
         try:
             self._session = self._session_factory()
+            self._session.info[UNIT_OF_WORK_FLAG] = True
             self._session.begin()
             self._install_repositories()
         except SQLAlchemyError:
@@ -142,7 +145,7 @@ class UnitOfWork:
             if exc_type is not None:
                 self._rollback_quietly(session)
                 return False
-            if session.info.get(TRANSACTION_FAILED_FLAG, False):
+            if session.info.get(UNIT_OF_WORK_FAILED_FLAG, False):
                 self._rollback_quietly(session)
                 raise UnitOfWorkError("storage transaction failed and was rolled back")
             try:
@@ -153,6 +156,7 @@ class UnitOfWork:
         finally:
             for repository in self._repositories:
                 repository._deactivate()
+            session.info.pop(UNIT_OF_WORK_FLAG, None)
             self._close_quietly(session)
             self._session = None
         del exc_value
@@ -173,6 +177,8 @@ __all__ = [
     "SessionFactory",
     "StorageError",
     "TRANSACTION_FAILED_FLAG",
+    "UNIT_OF_WORK_FAILED_FLAG",
+    "UNIT_OF_WORK_FLAG",
     "UnitOfWork",
     "UnitOfWorkError",
     "create_session_factory",

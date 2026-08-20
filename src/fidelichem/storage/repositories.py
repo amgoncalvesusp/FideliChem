@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable
 from contextlib import suppress
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -26,7 +26,13 @@ from .orm import (
     _ProjectRow,
     _SourceArtifactRow,
 )
-from .session import TRANSACTION_FAILED_FLAG, StorageError, UnitOfWorkError
+from .session import (
+    TRANSACTION_FAILED_FLAG,
+    UNIT_OF_WORK_FAILED_FLAG,
+    UNIT_OF_WORK_FLAG,
+    StorageError,
+    UnitOfWorkError,
+)
 
 
 class RepositoryError(StorageError):
@@ -51,6 +57,10 @@ class StorageWriteError(RepositoryError):
 
 class CorruptStoredDataError(RepositoryError):
     """A persisted row cannot be converted into its public domain value."""
+
+
+_ROLLBACK_LISTENER_FLAG = "_fidelichem_rollback_listener"
+_IGNORE_AUTO_ROLLBACK_FLAG = "_fidelichem_ignore_auto_rollback"
 
 
 def _safe_integrity_error(
@@ -89,8 +99,36 @@ def _flush(session: Session, row: object, *, entity: str, operation: str) -> Non
 
 def _fail_transaction(session: Session) -> None:
     session.info[TRANSACTION_FAILED_FLAG] = True
+    is_unit_of_work = bool(session.info.get(UNIT_OF_WORK_FLAG, False))
+    if is_unit_of_work:
+        session.info[UNIT_OF_WORK_FAILED_FLAG] = True
+    _install_rollback_recovery(session)
+    session.info[_IGNORE_AUTO_ROLLBACK_FLAG] = True
     with suppress(BaseException):
         session.rollback()
+    # A flush failure may already have ended SQLAlchemy's transaction before
+    # this rollback call, so no event is guaranteed.  Consume the guard here;
+    # a later explicit caller rollback must be allowed to clear the marker.
+    session.info.pop(_IGNORE_AUTO_ROLLBACK_FLAG, None)
+    if not is_unit_of_work:
+        with suppress(BaseException):
+            # Keep a clean transaction open so an explicit caller-owned
+            # rollback emits SQLAlchemy's recovery event.
+            session.begin()
+
+
+def _install_rollback_recovery(session: Session) -> None:
+    if session.info.get(_ROLLBACK_LISTENER_FLAG, False):
+        return
+
+    def clear_caller_failure(rolled_back_session: Session) -> None:
+        if rolled_back_session.info.pop(_IGNORE_AUTO_ROLLBACK_FLAG, False):
+            return
+        if not rolled_back_session.info.get(UNIT_OF_WORK_FLAG, False):
+            rolled_back_session.info.pop(TRANSACTION_FAILED_FLAG, None)
+
+    event.listen(session, "after_rollback", clear_caller_failure)
+    session.info[_ROLLBACK_LISTENER_FLAG] = True
 
 
 def _safe_read[ModelT](entity: str, operation: Callable[[], ModelT]) -> ModelT:

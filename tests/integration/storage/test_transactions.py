@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from fidelichem.domain.models import ImportBatch, Project
 from fidelichem.storage.repositories import (
     ForeignKeyViolationError,
+    ImportBatchRepository,
     ProjectRepository,
 )
 from fidelichem.storage.session import (
@@ -183,6 +184,20 @@ def test_uncaught_flush_failure_preserves_typed_error_after_rollback(
         assert session.execute(text("SELECT count(*) FROM project")).scalar_one() == 0
 
 
+def test_unit_of_work_stays_failed_after_explicit_inner_rollback(
+    migrated_engine,
+) -> None:
+    factory = create_session_factory(migrated_engine)
+    with pytest.raises(UnitOfWorkError, match="failed"), UnitOfWork(factory) as uow:
+        with suppress(ForeignKeyViolationError):
+            uow.import_batches.add(
+                _batch("00000000-0000-4000-8000-000000000000")
+            )
+        uow.session.rollback()
+        with pytest.raises(UnitOfWorkError, match="failed"):
+            uow.projects.get()
+
+
 def test_caller_owned_repository_fails_closed_after_flush_failure(
     migrated_engine,
 ) -> None:
@@ -200,3 +215,24 @@ def test_caller_owned_repository_fails_closed_after_flush_failure(
             )
         with pytest.raises(UnitOfWorkError, match="failed"):
             repository.get()
+
+
+def test_caller_owned_repository_recovers_after_explicit_rollback(
+    migrated_engine,
+) -> None:
+    factory = create_session_factory(migrated_engine)
+    with factory() as session:
+        repository = ProjectRepository(session)
+        repository.add(_project())
+        with pytest.raises(ForeignKeyViolationError):
+            ImportBatchRepository(session).add(
+                _batch("00000000-0000-4000-8000-000000000000")
+            )
+        with pytest.raises(UnitOfWorkError, match="failed"):
+            repository.get()
+
+        session.rollback()
+        recovered = ProjectRepository(session)
+        assert recovered.get() is None
+        recovered.add(_project("Recovered"))
+        session.commit()
