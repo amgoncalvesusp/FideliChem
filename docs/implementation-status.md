@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 1 — Domain model + storage**
-- Etapa ativa: Task 4 — lifecycle auditado e rollback atômico
-- Próxima ação exata: implementar por TDD a Task 4 de `docs/superpowers/plans/2026-08-20-phase-1-domain-storage.md`, partindo do checkpoint `516449e`.
+- Etapa ativa: Task 5 — layout seguro de projeto e gate integrado
+- Próxima ação exata: implementar por TDD a Task 5 de `docs/superpowers/plans/2026-08-20-phase-1-domain-storage.md`, partindo do checkpoint `f8f9fdd`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -17,7 +17,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | Fase | Estado | Evidência / próximo marco |
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
-| 1 — Domain model + storage | Em andamento | Tasks 1–3 aprovadas; Task 4 (lifecycle/audit/rollback) é o próximo marco. |
+| 1 — Domain model + storage | Em andamento | Tasks 1–4 aprovadas; Task 5 (projeto persistente e gate integrado) é o próximo marco. |
 | 2 — Chemistry + Identity Resolver | Pendente | Aguardar gate Terra da Fase 1. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
@@ -93,6 +93,18 @@ Fase 0, em 2026-08-20:
 - Findings corrigidos: repositories reutilizáveis após o contexto, sessão quebrada
   após flush capturado, erros crus de dados adulterados e recuperação de sessão
   caller-owned após rollback explícito sem reabrir um UoW falho.
+
+### Task 4 — lifecycle auditado e rollback atômico
+
+- Estado: concluída e aprovada em review independente.
+- Commits: `289a985` (implementação) e `f8f9fdd` (reopen real no teste de audit sequence).
+- Resultado: 132 testes aprovados e 90,97% de branch coverage global.
+- Gate: Ruff, mypy, lock check, pip-audit, build, pip check e diff check aprovados.
+- Contratos entregues: criação e transições optimistic de import batches, auditoria
+  atômica, failpoints sem falso sucesso e rollback lógico idempotente que preserva
+  artifacts e hashes e registra exatamente um evento.
+- Review: nenhum finding Critical/Important; o único Minor sobre o teste de reopen
+  foi corrigido e verificado com 3 testes de auditoria aprovados.
 
 ## Convenções de continuidade
 
