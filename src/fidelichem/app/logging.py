@@ -32,9 +32,9 @@ def configure_logging(level: int | str = logging.INFO) -> logging.Logger:
     else:
         handler = logging.StreamHandler()
         handler.set_name(_HANDLER_NAME)
-        handler.setFormatter(logging.Formatter(_FORMAT))
         logger.addHandler(handler)
 
+    handler.setFormatter(logging.Formatter(_FORMAT))
     handler.setLevel(resolved_level)
     logger.setLevel(resolved_level)
     logger.propagate = False

@@ -3,7 +3,7 @@ import logging
 
 import pytest
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 import fidelichem.gui.application as application_module
 from fidelichem.gui.application import create_application, main
@@ -57,6 +57,36 @@ def test_application_main_logs_startup_failure_and_returns_one(
     assert "FideliChem application startup failed" in log_output
     assert "controlled startup failure" in log_output
     assert "Traceback" in log_output
+
+
+@pytest.mark.gui
+def test_application_main_shows_safe_message_when_qapplication_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,
+) -> None:
+    shown_message: dict[str, object] = {}
+
+    def fail_to_construct_window() -> object:
+        raise RuntimeError("controlled startup failure detail")
+
+    def capture_critical_message(
+        parent: object,
+        title: str,
+        message: str,
+    ) -> QMessageBox.StandardButton:
+        shown_message.update(parent=parent, title=title, message=message)
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(application_module, "MainWindow", fail_to_construct_window)
+    monkeypatch.setattr(QMessageBox, "critical", capture_critical_message)
+
+    assert main([]) == 1
+    assert shown_message["parent"] is None
+    assert shown_message["title"] == "FideliChem"
+    assert shown_message["message"] == (
+        "FideliChem could not start. Please check the log for details."
+    )
+    assert "controlled startup failure detail" not in shown_message["message"]
 
 
 @pytest.mark.gui

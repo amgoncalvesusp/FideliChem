@@ -1,4 +1,6 @@
+import importlib
 import tomllib
+from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
@@ -57,3 +59,37 @@ def test_ci_covers_phase_zero_gate_on_both_operating_systems() -> None:
         "uv build",
     ):
         assert required_text in workflow
+
+
+@pytest.mark.config
+def test_installed_gui_entry_point_resolves_to_application_main() -> None:
+    installed_entry_points = {
+        entry_point.name: entry_point.value
+        for entry_point in entry_points(group="gui_scripts")
+    }
+
+    assert installed_entry_points["fidelichem-gui"] == (
+        "fidelichem.gui.application:main"
+    )
+    module = importlib.import_module("fidelichem.gui.application")
+    assert callable(module.main)
+
+
+@pytest.mark.config
+def test_ci_pins_official_actions_to_immutable_shas() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    expected_actions = {
+        "actions/checkout": ("11d5960a326750d5838078e36cf38b85af677262", "v4"),
+        "actions/setup-python": (
+            "a26af69be951a213d495a4c3e4e4022e16d87065",
+            "v5",
+        ),
+        "astral-sh/setup-uv": (
+            "d0d8abe699bfb85fec6de9f7adb5ae17292296ff",
+            "v6",
+        ),
+    }
+
+    for action, (sha, tag) in expected_actions.items():
+        assert f"uses: {action}@{sha} # {tag}" in workflow
+        assert f"uses: {action}@{tag}" not in workflow
