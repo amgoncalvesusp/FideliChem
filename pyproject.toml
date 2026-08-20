@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fidelichem"
+version = "0.1.0"
+description = "Explainable multi-fidelity molecular evidence and decision platform"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "PySide6>=6.8,<7",
+]
+
+[project.scripts]
+fidelichem = "fidelichem.cli:main"
+
+[project.gui-scripts]
+fidelichem-gui = "fidelichem.gui.application:main"
+
+[dependency-groups]
+dev = [
+  "coverage[toml]>=7.6",
+  "mypy>=1.13",
+  "pip-audit>=2.7",
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "pytest-qt>=4.4",
+  "ruff>=0.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fidelichem"]
+
+[tool.pytest.ini_options]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+testpaths = ["tests"]
+pythonpath = ["src"]
+qt_api = "pyside6"
+markers = [
+  "unit: isolated unit tests",
+  "integration: boundaries between application components",
+  "gui: Qt widget and event-loop tests",
+  "smoke: subprocess startup tests",
+  "config: repository configuration checks",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["fidelichem"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["fidelichem"]
