@@ -14,13 +14,18 @@ def read_toml(relative_path: str) -> dict[str, object]:
 
 
 @pytest.mark.config
-def test_runtime_dependencies_remain_phase_zero_minimal() -> None:
+def test_runtime_dependencies_include_phase_one_storage_stack() -> None:
     pyproject = read_toml("pyproject.toml")
     project = pyproject["project"]
 
     assert isinstance(project, dict)
     assert project["requires-python"] == ">=3.12,<3.13"
-    assert project["dependencies"] == ["PySide6>=6.8,<7"]
+    assert project["dependencies"] == [
+        "PySide6>=6.8,<7",
+        "pydantic>=2.10,<3",
+        "SQLAlchemy>=2.0,<3",
+        "alembic>=1.13,<2",
+    ]
 
 
 @pytest.mark.config
