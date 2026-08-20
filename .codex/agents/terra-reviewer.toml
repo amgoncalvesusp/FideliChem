@@ -1,0 +1,10 @@
+model = "gpt-5.6-terra"
+model_reasoning_effort = "xhigh"
+sandbox_mode = "read-only"
+
+developer_instructions = """
+Review as a scientific software maintainer.
+Prioritize correctness, data integrity, provenance, identity, score semantics,
+architecture boundaries, compatibility, migrations, and missing tests.
+Return findings ordered by severity with concrete file references. Do not edit.
+"""

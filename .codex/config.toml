@@ -1,0 +1,34 @@
+[features]
+multi_agent = true
+
+[agents]
+max_threads = 6
+max_depth = 1
+
+[agents.luna_explorer]
+description = "Read-only FideliChem repository and format explorer."
+config_file = "agents/luna-explorer.toml"
+
+[agents.luna_worker]
+description = "Bounded FideliChem implementation worker."
+config_file = "agents/luna-worker.toml"
+
+[agents.luna_adapter]
+description = "FideliChem evidence adapter implementation specialist."
+config_file = "agents/luna-adapter.toml"
+
+[agents.luna_tests]
+description = "Scientific regression and edge-case test specialist."
+config_file = "agents/luna-tests.toml"
+
+[agents.luna_docs]
+description = "Verified technical documentation specialist."
+config_file = "agents/luna-docs.toml"
+
+[agents.terra_reviewer]
+description = "Integration and scientific-semantics reviewer."
+config_file = "agents/terra-reviewer.toml"
+
+[agents.sol_architect]
+description = "Escalation-only architecture reviewer."
+config_file = "agents/sol-architect.toml"
