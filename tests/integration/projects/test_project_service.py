@@ -370,6 +370,40 @@ def test_open_rejects_manifest_database_mismatch_safely(tmp_path: Path) -> None:
         open_project(tmp_path / "Demo")
 
 
+def test_open_rejects_a_moved_database_even_when_manifest_path_is_in_root(
+    tmp_path: Path,
+) -> None:
+    created = create_project(tmp_path / "Demo", "Demo")
+    created.close()
+    root = tmp_path / "Demo"
+    nested = root / "nested"
+    nested.mkdir()
+    created.database.rename(nested / "db.sqlite")
+    manifest = json.loads(created.manifest.read_text(encoding="utf-8"))
+    manifest["database"] = "nested/db.sqlite"
+    created.manifest.write_bytes(canonical_json_bytes(manifest))
+
+    with pytest.raises(ProjectManifestError):
+        open_project(root)
+
+    assert (nested / "db.sqlite").is_file()
+
+
+@pytest.mark.parametrize("schema_version", [True, False])
+def test_manifest_schema_version_rejects_boolean_values(
+    tmp_path: Path,
+    schema_version: bool,
+) -> None:
+    created = create_project(tmp_path / "Demo", "Demo")
+    created.close()
+    manifest = json.loads(created.manifest.read_text(encoding="utf-8"))
+    manifest["schema_version"] = schema_version
+    created.manifest.write_bytes(canonical_json_bytes(manifest))
+
+    with pytest.raises(ProjectManifestError):
+        open_project(created.root)
+
+
 def test_creation_migration_failure_cleans_created_database(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

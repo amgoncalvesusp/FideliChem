@@ -44,6 +44,7 @@ class UnsafeManifestPathError(ProjectManifestError):
 
 
 _MANIFEST_KEYS = frozenset({"database", "name", "project_id", "schema_version"})
+_CANONICAL_DATABASE_NAME = "project.fidelichem.sqlite"
 
 
 def create_project(
@@ -142,17 +143,8 @@ def open_project(
     manifest = _read_manifest(paths.manifest)
     database_name = manifest["database"]
     database = _manifest_database_path(paths.root, database_name)
-    if database != paths.database:
-        paths = ProjectPaths(
-            root=paths.root,
-            manifest=paths.manifest,
-            database=database,
-            artifacts=paths.artifacts,
-            cache=paths.cache,
-            exports=paths.exports,
-            logs=paths.logs,
-            read_only=read_only,
-        )
+    if database_name != _CANONICAL_DATABASE_NAME:
+        raise ProjectManifestError("project manifest database filename is invalid")
     if not database.is_file():
         raise ProjectManifestError("project database is unavailable")
 
@@ -208,7 +200,7 @@ def _refuse_conflict(paths: ProjectPaths) -> None:
 
 def _manifest(project: Project) -> dict[str, Any]:
     return {
-        "database": "project.fidelichem.sqlite",
+        "database": _CANONICAL_DATABASE_NAME,
         "name": project.name,
         "project_id": project.id,
         "schema_version": project.schema_version,
@@ -247,7 +239,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         raise ProjectManifestError("project manifest is invalid")
     if not isinstance(value["project_id"], str):
         raise ProjectManifestError("project manifest is invalid")
-    if not isinstance(value["schema_version"], int):
+    if type(value["schema_version"]) is not int:
         raise ProjectManifestError("project manifest is invalid")
     return value
 
@@ -279,7 +271,7 @@ def _manifest_matches(project: Project, manifest: dict[str, Any]) -> bool:
     return bool(
         isinstance(project_id, str)
         and isinstance(name, str)
-        and isinstance(schema_version, int)
+        and type(schema_version) is int
         and project.id == project_id
         and project.name == name
         and project.schema_version == schema_version
