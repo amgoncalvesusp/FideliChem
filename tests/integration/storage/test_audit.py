@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from fidelichem.domain.models import AuditEvent, ImportBatch, Project
+from fidelichem.storage.engine import create_sqlite_engine
 from fidelichem.storage.services import StorageService
 from fidelichem.storage.session import UnitOfWork
 
@@ -32,25 +33,30 @@ def _seed_project(migrated_engine) -> Project:
     return project
 
 
-def test_audit_sequences_are_strictly_increasing_after_reopen(migrated_engine) -> None:
+def test_audit_sequences_are_strictly_increasing_after_reopen(
+    migrated_engine, database_path
+) -> None:
     service = StorageService(migrated_engine)
     project = _seed_project(migrated_engine)
     batch = service.create_import_batch(_batch(project))
     service.complete_import_batch(batch.id)
     service.rollback_import_batch(batch.id, reason="audit test")
 
-    with UnitOfWork(migrated_engine) as uow:
-        events = uow.audit_events.list_events()
-        sequences = [event.sequence for event in events]
-        assert all(sequence is not None for sequence in sequences)
-        assert sequences == sorted(sequences)
-        assert len(set(sequences)) == len(sequences)
-        assert all(
-            events[index].id != str(events[index].sequence)
-            for index in range(len(events))
-        )
-
     migrated_engine.dispose()
+    reopened_engine = create_sqlite_engine(database_path)
+    try:
+        with UnitOfWork(reopened_engine) as uow:
+            events = uow.audit_events.list_events()
+            sequences = [event.sequence for event in events]
+            assert all(sequence is not None for sequence in sequences)
+            assert sequences == sorted(sequences)
+            assert len(set(sequences)) == len(sequences)
+            assert all(
+                events[index].id != str(events[index].sequence)
+                for index in range(len(events))
+            )
+    finally:
+        reopened_engine.dispose()
 
 
 def test_audit_event_round_trip_preserves_null_and_empty_values(
