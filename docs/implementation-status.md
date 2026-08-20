@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 1 — Domain model + storage**
-- Etapa ativa: Task 3 — repositories transacionais e unit of work
-- Próxima ação exata: implementar por TDD a Task 3 de `docs/superpowers/plans/2026-08-20-phase-1-domain-storage.md`, partindo do checkpoint `9eabf45`.
+- Etapa ativa: Task 4 — lifecycle auditado e rollback atômico
+- Próxima ação exata: implementar por TDD a Task 4 de `docs/superpowers/plans/2026-08-20-phase-1-domain-storage.md`, partindo do checkpoint `516449e`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -17,7 +17,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | Fase | Estado | Evidência / próximo marco |
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
-| 1 — Domain model + storage | Em andamento | Tasks 1–2 aprovadas; Task 3 (repositories/UoW) é o próximo marco. |
+| 1 — Domain model + storage | Em andamento | Tasks 1–3 aprovadas; Task 4 (lifecycle/audit/rollback) é o próximo marco. |
 | 2 — Chemistry + Identity Resolver | Pendente | Aguardar gate Terra da Fase 1. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
@@ -80,6 +80,19 @@ Fase 0, em 2026-08-20:
   triggers append-only/imutáveis.
 - Findings corrigidos: escolha de audit sequence via `rowid`, paths inseguros por
   SQL direto e fallback Alembic sem PRAGMA controlado.
+
+### Task 3 — repositories transacionais e unit of work
+
+- Estado: concluída e aprovada em duas rodadas de re-review independente.
+- Commits: `3fdaa7b` (implementação), `d2eaa33` (fronteiras transacionais e erros
+  seguros) e `516449e` (recuperação de sessões caller-owned após rollback).
+- Resultado: 119 testes aprovados e 91,84% de branch coverage global.
+- Gate: Ruff, mypy, lock check, pip-audit, build, pip check e diff check aprovados.
+- Contratos entregues: repositories tipados, unit of work single-use, rollback em
+  falhas, erros públicos sem vazamento de SQL e detecção segura de linhas corrompidas.
+- Findings corrigidos: repositories reutilizáveis após o contexto, sessão quebrada
+  após flush capturado, erros crus de dados adulterados e recuperação de sessão
+  caller-owned após rollback explícito sem reabrir um UoW falho.
 
 ## Convenções de continuidade
 
