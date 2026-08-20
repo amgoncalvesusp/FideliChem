@@ -147,7 +147,13 @@ def upgrade() -> None:  # pragma: no cover
             "relative_path <> '..' AND "
             "relative_path NOT LIKE '../%' AND "
             "relative_path NOT LIKE '%/../%' AND "
-            "relative_path NOT LIKE '%/..'",
+            "relative_path NOT LIKE '%/..' AND "
+            "relative_path <> '.' AND "
+            "relative_path NOT LIKE './%' AND "
+            "relative_path NOT LIKE '%/./%' AND "
+            "relative_path NOT LIKE '%/.' AND "
+            "relative_path NOT LIKE '%//%' AND "
+            "relative_path NOT LIKE '%/'",
             name="ck_artifact_relative_path_safe",
         ),
         sa.CheckConstraint(
@@ -242,6 +248,18 @@ def upgrade() -> None:  # pragma: no cover
         BEFORE DELETE ON project
         BEGIN
             SELECT RAISE(ABORT, 'project rows are permanent');
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_project_immutable
+        BEFORE UPDATE ON project
+        WHEN NEW.id IS NOT OLD.id
+          OR NEW.created_at IS NOT OLD.created_at
+          OR NEW.schema_version IS NOT OLD.schema_version
+        BEGIN
+            SELECT RAISE(ABORT, 'project identity fields are immutable');
         END
         """
     )
@@ -374,6 +392,7 @@ def downgrade() -> None:  # pragma: no cover
     op.execute("DROP TRIGGER IF EXISTS trg_source_artifact_no_update")
     op.execute("DROP TRIGGER IF EXISTS trg_import_batch_no_delete")
     op.execute("DROP TRIGGER IF EXISTS trg_import_batch_immutable")
+    op.execute("DROP TRIGGER IF EXISTS trg_project_immutable")
     op.execute("DROP TRIGGER IF EXISTS trg_project_no_delete")
     op.execute("DROP TRIGGER IF EXISTS trg_project_single_row")
     op.drop_index("ix_audit_event_sequence", table_name="audit_event")

@@ -6,6 +6,10 @@ import pytest
 
 from fidelichem.domain.errors import InvalidStatusTransitionError
 from fidelichem.domain.models import ImportBatch, ImportStatus, Project, SourceArtifact
+from fidelichem.storage.repositories import (
+    InvalidProjectUpdateError,
+    OptimisticConcurrencyError,
+)
 from fidelichem.storage.services import StorageService
 from fidelichem.storage.session import UnitOfWork
 
@@ -80,6 +84,83 @@ def test_fail_import_batch_records_completion_timestamp(migrated_engine) -> None
     assert failed.completed_at == failed_at
     with UnitOfWork(migrated_engine) as uow:
         assert uow.audit_events.list_by_batch(batch.id)[-1].action == "import.failed"
+
+
+def test_update_project_audits_real_metadata_changes_only(migrated_engine) -> None:
+    service = StorageService(migrated_engine)
+    project = _seed_project(migrated_engine)
+    changed_at = NOW + timedelta(minutes=1)
+
+    updated = service.update_project(
+        project.id,
+        name="Renamed",
+        description="Updated",
+        updated_at=changed_at,
+        expected_updated_at=project.updated_at,
+    )
+    unchanged = service.update_project(
+        project.id,
+        name="Renamed",
+        description="Updated",
+        expected_updated_at=updated.updated_at,
+    )
+
+    assert updated.name == "Renamed"
+    assert updated.description == "Updated"
+    assert updated.updated_at == changed_at
+    assert unchanged == updated
+    with UnitOfWork(migrated_engine) as uow:
+        events = uow.audit_events.list_events(entity_type="project")
+        assert len(events) == 1
+        assert events[0].action == "project.updated"
+        assert events[0].old_value_json is not None
+        assert events[0].new_value_json is not None
+        assert uow.projects.get(project.id) == updated
+
+
+def test_update_project_rejects_stale_expected_timestamp(migrated_engine) -> None:
+    service = StorageService(migrated_engine)
+    project = _seed_project(migrated_engine)
+    service.update_project(project.id, name="First")
+
+    with pytest.raises(OptimisticConcurrencyError):
+        service.update_project(
+            project.id,
+            name="Stale",
+            expected_updated_at=project.updated_at,
+        )
+
+
+def test_update_project_rejects_explicit_stale_updated_timestamp(
+    migrated_engine,
+) -> None:
+    service = StorageService(migrated_engine)
+    project = _seed_project(migrated_engine)
+
+    with pytest.raises(InvalidProjectUpdateError):
+        service.update_project(
+            project.id,
+            name="Stale metadata",
+            updated_at=project.updated_at,
+        )
+
+
+def test_update_project_failpoint_rolls_back_metadata_and_audit(
+    migrated_engine,
+) -> None:
+    service = StorageService(migrated_engine)
+    project = _seed_project(migrated_engine)
+
+    def failpoint(stage: str) -> None:
+        if stage == "after_project_update":
+            raise RuntimeError("project failpoint")
+
+    with pytest.raises(RuntimeError, match="project failpoint"):
+        service.update_project(project.id, name="Should rollback", failpoint=failpoint)
+
+    with UnitOfWork(migrated_engine) as uow:
+        assert uow.projects.get(project.id) == project
+        assert uow.audit_events.list_events(entity_type="project") == ()
 
 
 @pytest.mark.parametrize(

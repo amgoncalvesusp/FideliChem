@@ -58,12 +58,24 @@ class StorageWriteError(RepositoryError):
     """A non-integrity database failure rejected a repository write."""
 
 
+class StorageReadError(RepositoryError):
+    """A database read failed without exposing driver details."""
+
+
 class CorruptStoredDataError(RepositoryError):
     """A persisted row cannot be converted into its public domain value."""
 
 
 class RecordNotFoundError(RepositoryError):
     """A lifecycle operation referenced a missing stored record."""
+
+
+class OptimisticConcurrencyError(RepositoryError):
+    """A metadata update used an obsolete row version."""
+
+
+class InvalidProjectUpdateError(RepositoryError):
+    """A project update attempted to change immutable or invalid metadata."""
 
 
 _ROLLBACK_LISTENER_FLAG = "_fidelichem_rollback_listener"
@@ -143,6 +155,8 @@ def _safe_read[ModelT](entity: str, operation: Callable[[], ModelT]) -> ModelT:
         return operation()
     except CorruptStoredDataError:
         raise
+    except SQLAlchemyError:
+        raise StorageReadError(f"stored {entity} could not be read") from None
     except Exception:
         raise CorruptStoredDataError(f"stored {entity} data is invalid") from None
 
@@ -292,6 +306,57 @@ class ProjectRepository(_RepositoryBase):
             ),
         )
 
+    def update(
+        self,
+        project: Project,
+        *,
+        expected_updated_at: datetime | None = None,
+    ) -> Project:
+        session = self._require_session()
+        try:
+            project = Project.model_validate(project.model_dump())
+        except ValueError:
+            raise InvalidProjectUpdateError("project metadata is invalid") from None
+        current = self.get(project.id)
+        if current is None:
+            raise RecordNotFoundError("project was not found")
+        if (
+            project.id != current.id
+            or project.created_at != current.created_at
+            or project.schema_version != current.schema_version
+        ):
+            raise InvalidProjectUpdateError(
+                "project identity and schema metadata are immutable"
+            )
+        expected = expected_updated_at or current.updated_at
+        if expected != current.updated_at:
+            raise OptimisticConcurrencyError("project changed before update")
+        if current.name == project.name and current.description == project.description:
+            return current
+        if project.updated_at <= current.updated_at:
+            raise InvalidProjectUpdateError("project updated_at must advance")
+        statement = (
+            update(_ProjectRow)
+            .where(
+                _ProjectRow.id == project.id,
+                _ProjectRow.updated_at == expected,
+            )
+            .values(
+                name=project.name,
+                description=project.description,
+                updated_at=project.updated_at,
+            )
+        )
+        if _safe_transition_update(session, statement, entity="project") != 1:
+            raise OptimisticConcurrencyError("project changed before update")
+        row = _safe_read(
+            "project",
+            lambda: session.get(_ProjectRow, project.id),
+        )
+        if row is None:
+            raise RecordNotFoundError("project was not found")
+        return _project_model(row)
+
 
 class ImportBatchRepository(_RepositoryBase):
     """Create and read immutable import-batch identity and provenance."""
@@ -397,7 +462,10 @@ class ImportBatchRepository(_RepositoryBase):
         )
 
     def _current_batch(self, session: Session, batch_id: str) -> ImportBatch:
-        row = session.get(_ImportBatchRow, batch_id)
+        row = _safe_read(
+            "import batch",
+            lambda: session.get(_ImportBatchRow, batch_id),
+        )
         if row is None:
             raise RecordNotFoundError("import batch was not found")
         return _batch_model(row)
@@ -438,7 +506,10 @@ class ImportBatchRepository(_RepositoryBase):
             raise InvalidStatusTransitionError(
                 "import batch changed before lifecycle transition"
             )
-        row = session.get(_ImportBatchRow, batch_id)
+        row = _safe_read(
+            "import batch",
+            lambda: session.get(_ImportBatchRow, batch_id),
+        )
         if row is None:
             raise RecordNotFoundError("import batch was not found")
         return _batch_model(row)
@@ -513,7 +584,12 @@ class AuditRepository(_RepositoryBase):
             actor_id=event.actor_id,
         )
         _flush(session, row, entity="audit event", operation="insert")
-        session.refresh(row)
+        try:
+            session.refresh(row)
+        except SQLAlchemyError:
+            raise StorageReadError(
+                "stored audit event could not be refreshed"
+            ) from None
         return _audit_model(row)
 
     def get(self, event_id: str) -> AuditEvent | None:
@@ -560,11 +636,14 @@ __all__ = [
     "CorruptStoredDataError",
     "DuplicateRecordError",
     "ForeignKeyViolationError",
+    "InvalidProjectUpdateError",
     "ImportBatchRepository",
+    "OptimisticConcurrencyError",
     "ProjectRepository",
     "RecordNotFoundError",
     "RepositoryError",
     "SourceArtifactRepository",
     "StorageIntegrityError",
+    "StorageReadError",
     "StorageWriteError",
 ]

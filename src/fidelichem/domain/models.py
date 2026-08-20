@@ -97,7 +97,7 @@ class Project(DomainModel):
     description: str | None = None
     created_at: UtcTimestamp
     updated_at: UtcTimestamp
-    schema_version: int = 1
+    schema_version: int = Field(default=1, ge=1, strict=True)
 
     _name_not_blank = field_validator("name")(_non_blank)
 
@@ -111,7 +111,7 @@ class ImportBatch(DomainModel):
     completed_at: UtcTimestamp | None = None
     status: ImportStatus = ImportStatus.IN_PROGRESS
     source_root: str
-    file_count: int = Field(default=0, ge=0)
+    file_count: int = Field(default=0, ge=0, strict=True)
     input_hash: Sha256Digest | None = None
     warnings: tuple[str, ...] = Field(default_factory=tuple)
     rolled_back_at: UtcTimestamp | None = None
@@ -129,7 +129,7 @@ class SourceArtifact(DomainModel):
     relative_path: SafeRelativePath
     sha256: Sha256Digest
     file_type: str
-    size_bytes: int = Field(ge=0)
+    size_bytes: int = Field(ge=0, strict=True)
     mtime: UtcTimestamp
 
     _path_not_blank = field_validator("path")(_non_blank)
@@ -137,7 +137,7 @@ class SourceArtifact(DomainModel):
 
 class AuditEvent(DomainModel):
     id: OpaqueId = Field(default_factory=new_id)
-    sequence: int | None = Field(default=None, ge=0)
+    sequence: int | None = Field(default=None, ge=0, strict=True)
     timestamp: UtcTimestamp
     action: str
     entity_type: str

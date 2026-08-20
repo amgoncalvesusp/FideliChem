@@ -43,6 +43,100 @@ def test_project_is_frozen_and_forbids_extra_fields() -> None:
         )
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_project_schema_version_rejects_boolean_numbers(value: bool) -> None:
+    with pytest.raises(ValidationError, match="schema_version"):
+        Project(
+            name="Demo",
+            created_at=NOW,
+            updated_at=NOW,
+            schema_version=value,
+        )
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_import_batch_file_count_rejects_boolean_numbers(value: bool) -> None:
+    with pytest.raises(ValidationError, match="file_count"):
+        ImportBatch(
+            project_id=identifier(),
+            adapter_id="adapter",
+            adapter_version="1",
+            started_at=NOW,
+            source_root="inputs",
+            file_count=value,
+        )
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_source_artifact_size_bytes_rejects_boolean_numbers(value: bool) -> None:
+    with pytest.raises(ValidationError, match="size_bytes"):
+        SourceArtifact(
+            import_batch_id=identifier(),
+            path="source/file.sdf",
+            relative_path="file.sdf",
+            sha256=HASH,
+            file_type="sdf",
+            size_bytes=value,
+            mtime=NOW,
+        )
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_audit_sequence_rejects_boolean_numbers(value: bool) -> None:
+    with pytest.raises(ValidationError, match="sequence"):
+        AuditEvent(
+            timestamp=NOW,
+            action="created",
+            entity_type="project",
+            entity_id=identifier(),
+            source="test",
+            sequence=value,
+        )
+
+
+@pytest.mark.parametrize(
+    ("model", "payload", "field"),
+    [
+        (
+            Project,
+            '{"name":"Demo","created_at":"2026-08-20T12:00:00Z",'
+            '"updated_at":"2026-08-20T12:00:00Z","schema_version":true}',
+            "schema_version",
+        ),
+        (
+            ImportBatch,
+            '{"project_id":"11111111-1111-4111-8111-111111111111",'
+            '"adapter_id":"adapter","adapter_version":"1",'
+            '"started_at":"2026-08-20T12:00:00Z","source_root":"inputs",'
+            '"file_count":true}',
+            "file_count",
+        ),
+        (
+            SourceArtifact,
+            '{"import_batch_id":"11111111-1111-4111-8111-111111111111",'
+            '"path":"source/file.sdf","relative_path":"file.sdf",'
+            '"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+            '"file_type":"sdf","size_bytes":true,'
+            '"mtime":"2026-08-20T12:00:00Z"}',
+            "size_bytes",
+        ),
+        (
+            AuditEvent,
+            '{"timestamp":"2026-08-20T12:00:00Z","action":"created",'
+            '"entity_type":"project",'
+            '"entity_id":"11111111-1111-4111-8111-111111111111",'
+            '"source":"test","sequence":true}',
+            "sequence",
+        ),
+    ],
+)
+def test_numeric_fields_reject_boolean_json(
+    model: type[object], payload: str, field: str
+) -> None:
+    with pytest.raises(ValidationError, match=field):
+        model.model_validate_json(payload)  # type: ignore[attr-defined]
+
+
 @pytest.mark.parametrize("name", ["", "   ", "\t\n"])
 def test_project_rejects_blank_names(name: str) -> None:
     with pytest.raises(ValidationError, match="name"):

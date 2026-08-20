@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from fidelichem.domain.models import (
     ActorKind,
@@ -17,7 +19,10 @@ from fidelichem.storage.repositories import (
     CorruptStoredDataError,
     DuplicateRecordError,
     ForeignKeyViolationError,
+    InvalidProjectUpdateError,
+    OptimisticConcurrencyError,
     ProjectRepository,
+    StorageReadError,
 )
 from fidelichem.storage.session import UnitOfWork, create_session_factory
 
@@ -110,6 +115,92 @@ def test_reads_return_none_for_missing_records(migrated_engine) -> None:
         assert uow.import_batches.get("00000000-0000-4000-8000-000000000000") is None
         assert uow.source_artifacts.get("00000000-0000-4000-8000-000000000000") is None
         assert uow.audit_events.get("00000000-0000-4000-8000-000000000000") is None
+
+
+def test_project_repository_updates_metadata_and_preserves_immutable_fields(
+    migrated_engine,
+) -> None:
+    project = _project()
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+
+    updated = project.model_copy(
+        update={
+            "name": "Renamed",
+            "description": "Updated metadata",
+            "updated_at": NOW + timedelta(minutes=1),
+        }
+    )
+    with UnitOfWork(migrated_engine) as uow:
+        stored = uow.projects.update(
+            updated,
+            expected_updated_at=project.updated_at,
+        )
+
+    assert stored.name == "Renamed"
+    assert stored.description == "Updated metadata"
+    assert stored.id == project.id
+    assert stored.created_at == project.created_at
+    assert stored.schema_version == project.schema_version
+
+    with UnitOfWork(migrated_engine) as uow:
+        assert uow.projects.update(stored) == stored
+
+
+def test_project_repository_rejects_stale_metadata_update(migrated_engine) -> None:
+    project = _project()
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        current = uow.projects.update(
+            project.model_copy(
+                update={
+                    "name": "First",
+                    "updated_at": NOW + timedelta(minutes=1),
+                }
+            )
+        )
+        with pytest.raises(OptimisticConcurrencyError):
+            uow.projects.update(
+                project.model_copy(
+                    update={
+                        "name": "Stale",
+                        "updated_at": NOW + timedelta(minutes=2),
+                    }
+                ),
+                expected_updated_at=project.updated_at,
+            )
+        assert uow.projects.get(project.id) == current
+
+
+def test_project_repository_rejects_unvalidated_immutable_metadata_changes(
+    migrated_engine,
+) -> None:
+    project = _project()
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        invalid = project.model_copy(
+            update={"name": "Changed", "schema_version": True}
+        )
+        with pytest.raises(InvalidProjectUpdateError):
+            uow.projects.update(invalid)
+
+
+def test_sqlalchemy_read_fault_is_safe_and_distinct_from_corruption(
+    migrated_engine,
+) -> None:
+    class FailingReadSession(Session):
+        def execute(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            raise OperationalError("SELECT secret/path", {}, RuntimeError("secret"))
+
+    session = FailingReadSession(bind=migrated_engine)
+    try:
+        with pytest.raises(StorageReadError) as error:
+            ProjectRepository(session).get()
+        assert "SELECT" not in str(error.value).upper()
+        assert "secret" not in str(error.value).lower()
+        assert not isinstance(error.value, CorruptStoredDataError)
+    finally:
+        session.close()
 
 
 def test_repositories_use_caller_owned_session_without_commit(migrated_engine) -> None:

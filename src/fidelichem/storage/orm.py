@@ -178,7 +178,13 @@ class _SourceArtifactRow(Base):
             "relative_path <> '..' AND "
             "relative_path NOT LIKE '../%' AND "
             "relative_path NOT LIKE '%/../%' AND "
-            "relative_path NOT LIKE '%/..'",
+            "relative_path NOT LIKE '%/..' AND "
+            "relative_path <> '.' AND "
+            "relative_path NOT LIKE './%' AND "
+            "relative_path NOT LIKE '%/./%' AND "
+            "relative_path NOT LIKE '%/.' AND "
+            "relative_path NOT LIKE '%//%' AND "
+            "relative_path NOT LIKE '%/'",
             name="ck_artifact_relative_path_safe",
         ),
         CheckConstraint(

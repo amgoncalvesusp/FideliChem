@@ -3,19 +3,32 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Engine
 
 from fidelichem.domain.errors import InvalidStatusTransitionError
 from fidelichem.domain.json import canonical_json
-from fidelichem.domain.models import ActorKind, AuditEvent, ImportBatch, ImportStatus
+from fidelichem.domain.models import (
+    ActorKind,
+    AuditEvent,
+    ImportBatch,
+    ImportStatus,
+    Project,
+)
 
 from .repositories import RecordNotFoundError
 from .session import SessionFactory, UnitOfWork
 
 Failpoint = Callable[[str], None]
 Clock = Callable[[], datetime]
+
+
+class _Unset:
+    pass
+
+
+_UNSET = _Unset()
 
 
 class StorageService:
@@ -54,6 +67,59 @@ class StorageService:
             uow.audit_events.add(self._event("import.created", None, created))
             self._trigger("after_audit", failpoint)
         return created
+
+    def update_project(
+        self,
+        project_id: str,
+        *,
+        name: str | None = None,
+        description: str | None | _Unset = _UNSET,
+        updated_at: datetime | None = None,
+        expected_updated_at: datetime | None = None,
+        failpoint: Failpoint | None = None,
+    ) -> Project:
+        """Update project metadata and append one atomic audit event."""
+
+        with UnitOfWork(self._session_factory) as uow:
+            before = self._require_project(uow, project_id)
+            candidate_data = before.model_dump()
+            if name is not None:
+                candidate_data["name"] = name
+            if description is not _UNSET:
+                candidate_data["description"] = description
+            changed = (
+                candidate_data["name"] != before.name
+                or candidate_data["description"] != before.description
+            )
+            if changed:
+                candidate_data["updated_at"] = updated_at or self._clock()
+            else:
+                candidate_data["updated_at"] = before.updated_at
+            candidate = Project.model_validate(candidate_data)
+            if (
+                changed
+                and updated_at is None
+                and candidate.updated_at <= before.updated_at
+            ):
+                candidate = candidate.model_copy(
+                    update={
+                        "updated_at": before.updated_at + timedelta(microseconds=1)
+                    }
+                )
+            if not changed:
+                return uow.projects.update(
+                    candidate,
+                    expected_updated_at=expected_updated_at
+                    or before.updated_at,
+                )
+            self._trigger("before_project_update", failpoint)
+            updated = uow.projects.update(
+                candidate,
+                expected_updated_at=expected_updated_at or before.updated_at,
+            )
+            self._trigger("after_project_update", failpoint)
+            self._append_project_audit(uow, before, updated, failpoint)
+        return updated
 
     def complete_import_batch(
         self,
@@ -146,6 +212,17 @@ class StorageService:
         uow.audit_events.add(self._event(action, before, after))
         self._trigger("after_audit", failpoint)
 
+    def _append_project_audit(
+        self,
+        uow: UnitOfWork,
+        before: Project,
+        after: Project,
+        failpoint: Failpoint | None,
+    ) -> None:
+        self._trigger("before_audit", failpoint)
+        uow.audit_events.add(self._project_event("project.updated", before, after))
+        self._trigger("after_audit", failpoint)
+
     def _event(
         self,
         action: str,
@@ -165,9 +242,27 @@ class StorageService:
             actor_id=self._actor_id,
         )
 
+    def _project_event(
+        self,
+        action: str,
+        before: Project,
+        after: Project,
+    ) -> AuditEvent:
+        return AuditEvent(
+            timestamp=self._clock(),
+            action=action,
+            entity_type="project",
+            entity_id=after.id,
+            old_value_json=self._json(before),
+            new_value_json=self._json(after),
+            source=self._audit_source,
+            actor_kind=self._actor_kind,
+            actor_id=self._actor_id,
+        )
+
     @staticmethod
-    def _json(batch: ImportBatch) -> str:
-        return canonical_json(batch.model_dump(mode="json"))
+    def _json(value: ImportBatch | Project) -> str:
+        return canonical_json(value.model_dump(mode="json"))
 
     def _trigger(self, stage: str, local_failpoint: Failpoint | None) -> None:
         callback = local_failpoint or self._failpoint
@@ -180,6 +275,13 @@ class StorageService:
         if batch is None:
             raise RecordNotFoundError("import batch was not found")
         return batch
+
+    @staticmethod
+    def _require_project(uow: UnitOfWork, project_id: str) -> Project:
+        project = uow.projects.get(project_id)
+        if project is None:
+            raise RecordNotFoundError("project was not found")
+        return project
 
 
 __all__ = ["StorageService"]

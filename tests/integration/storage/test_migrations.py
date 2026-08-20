@@ -123,6 +123,7 @@ def test_blank_database_migrates_to_head_and_has_expected_objects(
         }
     assert {
         "trg_project_single_row",
+        "trg_project_immutable",
         "trg_import_batch_immutable",
         "trg_source_artifact_no_update",
         "trg_source_artifact_no_delete",
@@ -496,6 +497,71 @@ def test_direct_sql_rejects_unsafe_relative_paths(
             )
 
 
+@pytest.mark.parametrize(
+    "relative_path",
+    ["a//b.sdf", "a/./b.sdf", "./a.sdf", "a.sdf/", ".", "a/.", "a//"],
+)
+def test_direct_sql_rejects_noncanonical_relative_paths(
+    migrated_engine: Engine,
+    relative_path: str,
+) -> None:
+    with migrated_engine.begin() as connection:
+        _insert_project(connection)
+        _insert_batch(connection)
+        with pytest.raises((IntegrityError, OperationalError)):
+            connection.execute(
+                text(
+                    "INSERT INTO source_artifact "
+                    "(id, import_batch_id, path, relative_path, sha256, file_type, "
+                    "size_bytes, mtime) VALUES (:id, :batch, :path, :relative, "
+                    ":sha, :type, :size, :mtime)"
+                ),
+                {
+                    "id": "88888888-8888-4888-8888-888888888888",
+                    "batch": BATCH_ID,
+                    "path": "/tmp/input.sdf",
+                    "relative": relative_path,
+                    "sha": "a" * 64,
+                    "type": "sdf",
+                    "size": 4,
+                    "mtime": "2026-01-01T00:00:00.000000Z",
+                },
+            )
+
+
+def test_direct_sql_accepts_canonical_nested_relative_path(
+    migrated_engine: Engine,
+) -> None:
+    with migrated_engine.begin() as connection:
+        _insert_project(connection)
+        _insert_batch(connection)
+        connection.execute(
+            text(
+                "INSERT INTO source_artifact "
+                "(id, import_batch_id, path, relative_path, sha256, file_type, "
+                "size_bytes, mtime) VALUES (:id, :batch, :path, :relative, "
+                ":sha, :type, :size, :mtime)"
+            ),
+            {
+                "id": "99999999-9999-4999-8999-999999999999",
+                "batch": BATCH_ID,
+                "path": "/tmp/input.sdf",
+                "relative": "nested/input.sdf",
+                "sha": "a" * 64,
+                "type": "sdf",
+                "size": 4,
+                "mtime": "2026-01-01T00:00:00.000000Z",
+            },
+        )
+        assert connection.scalar(
+            text(
+                "SELECT relative_path FROM source_artifact "
+                "WHERE id = :id"
+            ),
+            {"id": "99999999-9999-4999-8999-999999999999"},
+        ) == "nested/input.sdf"
+
+
 def test_import_batch_immutable_fields_are_database_enforced(
     migrated_engine: Engine,
 ) -> None:
@@ -509,6 +575,23 @@ def test_import_batch_immutable_fields_are_database_enforced(
                 ),
                 {"id": BATCH_ID},
             )
+
+
+def test_project_immutable_fields_are_database_enforced(
+    migrated_engine: Engine,
+) -> None:
+    with migrated_engine.begin() as connection:
+        _insert_project(connection)
+        with pytest.raises((IntegrityError, OperationalError)):
+            connection.execute(
+                text("UPDATE project SET schema_version = 2 WHERE id = :id"),
+                {"id": PROJECT_ID},
+            )
+        connection.execute(
+            text("UPDATE project SET name = :name, description = :description"),
+            {"name": "Renamed", "description": "Metadata"},
+        )
+        assert connection.scalar(text("SELECT name FROM project")) == "Renamed"
 
 
 def test_timestamps_are_stored_as_utc_text(migrated_engine: Engine) -> None:
