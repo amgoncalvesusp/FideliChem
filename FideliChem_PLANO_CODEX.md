@@ -1,5 +1,7 @@
 # FideliChem — Plano de Implementação no Codex
 
+> Estado de execução: consulte [docs/implementation-status.md](docs/implementation-status.md). Esse registro é atualizado e versionado a cada checkpoint para permitir retomada exata entre sessões.
+
 **Nome de trabalho:** FideliChem  
 **Subtítulo:** Explainable Multi-Fidelity Molecular Evidence & Decision Platform  
 **Objetivo deste documento:** permitir que outra IA, trabalhando no Codex, implemente o software de forma incremental, testável e economicamente eficiente, usando subagents — preferencialmente **GPT-5.6 Luna com raciocínio `xhigh` (Extra High)** — para tarefas bem delimitadas.
