@@ -170,6 +170,18 @@ class _SourceArtifactRow(Base):
             name="ck_artifact_relative_path",
         ),
         CheckConstraint(
+            "length(trim(relative_path)) > 0 AND "
+            "instr(relative_path, char(0)) = 0 AND "
+            "instr(relative_path, char(92)) = 0 AND "
+            "substr(relative_path, 1, 1) <> '/' AND "
+            "relative_path NOT GLOB '[A-Za-z]:*' AND "
+            "relative_path <> '..' AND "
+            "relative_path NOT LIKE '../%' AND "
+            "relative_path NOT LIKE '%/../%' AND "
+            "relative_path NOT LIKE '%/..'",
+            name="ck_artifact_relative_path_safe",
+        ),
+        CheckConstraint(
             "length(sha256) = 64 AND sha256 = lower(sha256) AND "
             "sha256 NOT GLOB '*[^0-9a-f]*'",
             name="ck_artifact_sha256",

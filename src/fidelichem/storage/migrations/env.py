@@ -6,7 +6,7 @@ from logging.config import fileConfig
 from typing import cast
 
 from alembic import context
-from sqlalchemy import Connection, engine_from_config, pool
+from sqlalchemy import Connection
 
 from fidelichem.storage.orm import Base
 
@@ -47,18 +47,11 @@ def run_migrations_online() -> None:  # pragma: no cover
     """Run against the runner's existing connection when supplied."""
 
     supplied_connection = config.attributes.get("connection")
-    if supplied_connection is not None:
-        _run_migrations(cast(Connection, supplied_connection))
-        return
-
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-    with connectable.connect() as connection:
-        _run_migrations(connection)
-    connectable.dispose()
+    if supplied_connection is None:
+        raise RuntimeError(
+            "Alembic online migrations require an existing SQLAlchemy connection"
+        )
+    _run_migrations(cast(Connection, supplied_connection))
 
 
 if context.is_offline_mode():  # pragma: no cover

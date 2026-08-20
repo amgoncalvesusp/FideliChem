@@ -139,6 +139,18 @@ def upgrade() -> None:  # pragma: no cover
             name="ck_artifact_relative_path",
         ),
         sa.CheckConstraint(
+            "length(trim(relative_path)) > 0 AND "
+            "instr(relative_path, char(0)) = 0 AND "
+            "instr(relative_path, char(92)) = 0 AND "
+            "substr(relative_path, 1, 1) <> '/' AND "
+            "relative_path NOT GLOB '[A-Za-z]:*' AND "
+            "relative_path <> '..' AND "
+            "relative_path NOT LIKE '../%' AND "
+            "relative_path NOT LIKE '%/../%' AND "
+            "relative_path NOT LIKE '%/..'",
+            name="ck_artifact_relative_path_safe",
+        ),
+        sa.CheckConstraint(
             "length(sha256) = 64 AND sha256 = lower(sha256) AND "
             "sha256 NOT GLOB '*[^0-9a-f]*'",
             name="ck_artifact_sha256",
@@ -280,7 +292,37 @@ def upgrade() -> None:  # pragma: no cover
     )
     op.execute(
         """
+        CREATE TRIGGER trg_audit_event_no_explicit_sequence
+        BEFORE INSERT ON audit_event
+        WHEN NEW.sequence IS NOT NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'audit sequence is database generated');
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_audit_event_no_explicit_rowid
+        BEFORE INSERT ON audit_event
+        WHEN NEW.rowid > 0
+        BEGIN
+            SELECT RAISE(ABORT, 'audit rowid is database generated');
+        END
+        """
+    )
+    op.execute(
+        """
         CREATE TRIGGER trg_audit_event_sequence
+        AFTER INSERT ON audit_event
+        WHEN NEW.rowid <= 0
+        BEGIN
+            SELECT RAISE(ABORT, 'audit rowid must be positive');
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_audit_event_sequence_assign
         AFTER INSERT ON audit_event
         BEGIN
             UPDATE audit_event SET sequence = NEW.rowid WHERE id = NEW.id;
@@ -324,7 +366,10 @@ def upgrade() -> None:  # pragma: no cover
 def downgrade() -> None:  # pragma: no cover
     op.execute("DROP TRIGGER IF EXISTS trg_audit_event_no_delete")
     op.execute("DROP TRIGGER IF EXISTS trg_audit_event_no_update")
+    op.execute("DROP TRIGGER IF EXISTS trg_audit_event_sequence_assign")
     op.execute("DROP TRIGGER IF EXISTS trg_audit_event_sequence")
+    op.execute("DROP TRIGGER IF EXISTS trg_audit_event_no_explicit_rowid")
+    op.execute("DROP TRIGGER IF EXISTS trg_audit_event_no_explicit_sequence")
     op.execute("DROP TRIGGER IF EXISTS trg_source_artifact_no_delete")
     op.execute("DROP TRIGGER IF EXISTS trg_source_artifact_no_update")
     op.execute("DROP TRIGGER IF EXISTS trg_import_batch_no_delete")

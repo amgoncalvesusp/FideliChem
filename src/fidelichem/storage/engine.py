@@ -42,11 +42,21 @@ def create_sqlite_engine(
         dbapi_connection: sqlite3.Connection,
         _: object,
     ) -> None:
+        original_autocommit = getattr(dbapi_connection, "autocommit", None)
+        original_isolation = dbapi_connection.isolation_level
+        if original_autocommit is not None:
+            dbapi_connection.autocommit = True
+        else:
+            dbapi_connection.isolation_level = None
         cursor = dbapi_connection.cursor()
         try:
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.execute("PRAGMA recursive_triggers=ON")
         finally:
             cursor.close()
+            if original_autocommit is not None:
+                dbapi_connection.autocommit = original_autocommit
+            else:
+                dbapi_connection.isolation_level = original_isolation
 
     return engine

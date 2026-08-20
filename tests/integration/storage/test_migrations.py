@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import runpy
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.environment import EnvironmentContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
@@ -123,7 +126,10 @@ def test_blank_database_migrates_to_head_and_has_expected_objects(
         "trg_import_batch_immutable",
         "trg_source_artifact_no_update",
         "trg_source_artifact_no_delete",
+        "trg_audit_event_no_explicit_sequence",
+        "trg_audit_event_no_explicit_rowid",
         "trg_audit_event_sequence",
+        "trg_audit_event_sequence_assign",
         "trg_audit_event_no_update",
         "trg_audit_event_no_delete",
     }.issubset(trigger_names)
@@ -156,6 +162,21 @@ def test_orm_metadata_has_no_unplanned_upgrade_operations(
         config.attributes["connection"] = connection
         command.check(config)
     engine.dispose()
+
+
+def test_alembic_environment_rejects_missing_existing_connection() -> None:
+    config = Config()
+    config.set_main_option(
+        "script_location",
+        str(Path("src/fidelichem/storage/migrations").resolve()),
+    )
+    script = ScriptDirectory.from_config(config)
+    environment = Path("src/fidelichem/storage/migrations/env.py").resolve()
+    with EnvironmentContext(config, script), pytest.raises(
+        RuntimeError,
+        match="existing SQLAlchemy connection",
+    ):
+        runpy.run_path(str(environment), run_name="fidelichem_storage_env")
 
 
 def test_integrity_and_foreign_key_checks_are_clean(migrated_engine: Engine) -> None:
@@ -377,33 +398,101 @@ def test_audit_sequence_remains_increasing_after_database_reopen(
     assert sequences == [1, 2]
 
 
-def test_audit_insert_with_explicit_sequence_is_overridden(
+def test_audit_insert_with_explicit_sequence_is_rejected(
     migrated_engine: Engine,
 ) -> None:
     with migrated_engine.begin() as connection:
         _insert_project(connection)
-        connection.execute(
-            text(
-                "INSERT INTO audit_event "
-                "(id, sequence, timestamp, action, entity_type, entity_id, "
-                "source, actor_kind) VALUES (:id, 987654, :timestamp, :action, "
-                ":type, :entity, :source, :actor)"
-            ),
-            {
-                "id": AUDIT_ID,
-                "timestamp": "2026-01-01T00:00:00.000000Z",
-                "action": "created",
-                "type": "project",
-                "entity": PROJECT_ID,
-                "source": "test",
-                "actor": "system",
-            },
-        )
-        sequence = connection.scalar(
-            text("SELECT sequence FROM audit_event WHERE id = :id"),
-            {"id": AUDIT_ID},
-        )
-    assert sequence != 987654
+        with pytest.raises((IntegrityError, OperationalError)):
+            connection.execute(
+                text(
+                    "INSERT INTO audit_event "
+                    "(id, sequence, timestamp, action, entity_type, entity_id, "
+                    "source, actor_kind) VALUES (:id, 987654, :timestamp, :action, "
+                    ":type, :entity, :source, :actor)"
+                ),
+                {
+                    "id": AUDIT_ID,
+                    "timestamp": "2026-01-01T00:00:00.000000Z",
+                    "action": "created",
+                    "type": "project",
+                    "entity": PROJECT_ID,
+                    "source": "test",
+                    "actor": "system",
+                },
+            )
+
+
+@pytest.mark.parametrize(
+    ("rowid_alias", "rowid_value"),
+    [
+        ("rowid", 99),
+        ("_rowid_", 100),
+        ("oid", 101),
+        ("rowid", 0),
+        ("_rowid_", -1),
+        ("oid", -2),
+    ],
+)
+def test_direct_audit_insert_cannot_choose_rowid_alias(
+    migrated_engine: Engine,
+    rowid_alias: str,
+    rowid_value: int,
+) -> None:
+    audit_id = f"{abs(rowid_value) + 10:08d}-1111-4111-8111-111111111111"
+    with migrated_engine.begin() as connection:
+        _insert_project(connection)
+        with pytest.raises((IntegrityError, OperationalError)):
+            connection.execute(
+                text(
+                    f"INSERT INTO audit_event ({rowid_alias}, id, timestamp, "
+                    "action, entity_type, entity_id, source, actor_kind) VALUES "
+                    "(:rowid, :id, :timestamp, :action, :type, :entity, "
+                    ":source, :actor)"
+                ),
+                {
+                    "rowid": rowid_value,
+                    "id": audit_id,
+                    "timestamp": "2026-01-01T00:00:00.000000Z",
+                    "action": "created",
+                    "type": "project",
+                    "entity": PROJECT_ID,
+                    "source": "test",
+                    "actor": "system",
+                },
+            )
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ["../x", "a/../x", "/abs", "C:/abs", r"C:\abs", "nul\x00path"],
+)
+def test_direct_sql_rejects_unsafe_relative_paths(
+    migrated_engine: Engine,
+    relative_path: str,
+) -> None:
+    with migrated_engine.begin() as connection:
+        _insert_project(connection)
+        _insert_batch(connection)
+        with pytest.raises((IntegrityError, OperationalError)):
+            connection.execute(
+                text(
+                    "INSERT INTO source_artifact "
+                    "(id, import_batch_id, path, relative_path, sha256, file_type, "
+                    "size_bytes, mtime) VALUES (:id, :batch, :path, :relative, "
+                    ":sha, :type, :size, :mtime)"
+                ),
+                {
+                    "id": "77777777-7777-4777-8777-777777777777",
+                    "batch": BATCH_ID,
+                    "path": "/tmp/input.csv",
+                    "relative": relative_path,
+                    "sha": "a" * 64,
+                    "type": "csv",
+                    "size": 4,
+                    "mtime": "2026-01-01T00:00:00.000000Z",
+                },
+            )
 
 
 def test_import_batch_immutable_fields_are_database_enforced(
