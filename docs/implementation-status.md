@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 1 — Domain model + storage**
-- Etapa ativa: Task 5 — layout seguro de projeto e gate integrado
-- Próxima ação exata: implementar por TDD a Task 5 de `docs/superpowers/plans/2026-08-20-phase-1-domain-storage.md`, partindo do checkpoint `f8f9fdd`.
+- Etapa ativa: gate independente da Fase 1 após Task 5
+- Próxima ação exata: executar a revisão Terra da Fase 1 sobre os commits das Tasks 1–5; não marcar a fase como concluída antes da revisão.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -17,7 +17,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | Fase | Estado | Evidência / próximo marco |
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
-| 1 — Domain model + storage | Em andamento | Tasks 1–4 aprovadas; Task 5 (projeto persistente e gate integrado) é o próximo marco. |
+| 1 — Domain model + storage | Em andamento | Tasks 1–5 implementadas; aguardar revisão Terra e gate final da fase. |
 | 2 — Chemistry + Identity Resolver | Pendente | Aguardar gate Terra da Fase 1. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
@@ -105,6 +105,26 @@ Fase 0, em 2026-08-20:
   artifacts e hashes e registra exatamente um evento.
 - Review: nenhum finding Critical/Important; o único Minor sobre o teste de reopen
   foi corrigido e verificado com 3 testes de auditoria aprovados.
+
+### Task 5 — projeto persistente e layout seguro
+
+- Estado: concluída; revisão independente da Fase 1 pendente.
+- Commit: `14f2a77` (`feat: create persistent FideliChem projects`).
+- Resultado: 157 testes aprovados na suíte completa; 25 testes focados de
+  projetos; cobertura global de branches 89,29% e cobertura scoped de
+  `domain/provenance/storage/projects` de 89,10%.
+- Gate: `uv lock --check`, Ruff, mypy, `pip-audit`, build, `uv pip check` e
+  `git diff --check` aprovados; `pip-audit` não audita o pacote local
+  `fidelichem` por ele não estar publicado no PyPI.
+- Contratos entregues: `ProjectPaths` imutável, criação/reabertura com manifest
+  UTF-8 canônico, migration Alembic, modo read-only, IDs estáveis, Unicode,
+  recusa de conflitos e caminhos inseguros, cleanup limitado em falhas e
+  round-trip E2E de batch, artifact, complete, rollback e audit.
+- Riscos residuais: o manifest permanece deliberadamente mínimo (ID, nome,
+  schema e arquivo relativo do banco); adapters e portabilidade física ficam
+  para fases posteriores.
+- Próxima ação: revisão Terra independente da Fase 1; somente após findings
+  críticos/importantes resolvidos atualizar o estado da fase.
 
 ## Convenções de continuidade
 
