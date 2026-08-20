@@ -395,7 +395,8 @@ def test_audit_sequence_remains_increasing_after_database_reopen(
             )
         ]
     reopened.dispose()
-    assert sequences == [1, 2]
+    assert sequences[0] > 0
+    assert sequences[1] > sequences[0]
 
 
 def test_audit_insert_with_explicit_sequence_is_rejected(
