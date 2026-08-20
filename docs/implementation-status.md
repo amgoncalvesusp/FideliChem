@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 1 — Domain model + storage**
-- Etapa ativa: Task 2 — engine SQLite e migration inicial empacotada
-- Próxima ação exata: implementar por TDD a Task 2 de `docs/superpowers/plans/2026-08-20-phase-1-domain-storage.md`, partindo do checkpoint `14d7710` e de sua revisão aprovada.
+- Etapa ativa: Task 3 — repositories transacionais e unit of work
+- Próxima ação exata: implementar por TDD a Task 3 de `docs/superpowers/plans/2026-08-20-phase-1-domain-storage.md`, partindo do checkpoint `9eabf45`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -17,7 +17,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | Fase | Estado | Evidência / próximo marco |
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
-| 1 — Domain model + storage | Em andamento | Task 1 aprovada; Task 2 (engine/schema/migration) é o próximo marco. |
+| 1 — Domain model + storage | Em andamento | Tasks 1–2 aprovadas; Task 3 (repositories/UoW) é o próximo marco. |
 | 2 — Chemistry + Identity Resolver | Pendente | Aguardar gate Terra da Fase 1. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
@@ -67,6 +67,19 @@ Fase 0, em 2026-08-20:
   paths relativos seguros, JSON canônico sem chaves duplicadas e SHA-256 streaming.
 - Findings corrigidos: nomes públicos de serialização, UUID não canônico e perda de
   informação em JSON com chaves duplicadas.
+
+### Task 2 — engine SQLite e migration inicial
+
+- Estado: concluída e aprovada em re-review independente.
+- Commits: `b9067c2` (implementação), `79c35b5` (hardening SQLite) e
+  `9eabf45` (teste alinhado a gaps válidos da sequência).
+- Resultado: 93 testes aprovados e 87,42% de branch coverage global.
+- Gate: Ruff, mypy, lock check, pip-audit, build, pip check e diff check aprovados.
+- Contratos entregues: engine file-backed/read-only, FKs por conexão, schema
+  SQLAlchemy sem drift, Alembic empacotado, singleton de projeto, FKs RESTRICT e
+  triggers append-only/imutáveis.
+- Findings corrigidos: escolha de audit sequence via `rowid`, paths inseguros por
+  SQL direto e fallback Alembic sem PRAGMA controlado.
 
 ## Convenções de continuidade
 
