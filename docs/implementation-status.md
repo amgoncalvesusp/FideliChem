@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 1 — Domain model + storage**
-- Etapa ativa: plano TDD congelado; Task 1 — dependências e primitivas imutáveis
-- Próxima ação exata: preparar o workspace SDD e delegar a Task 1 de `docs/superpowers/plans/2026-08-20-phase-1-domain-storage.md` a um implementador Luna xhigh.
+- Etapa ativa: Task 2 — engine SQLite e migration inicial empacotada
+- Próxima ação exata: implementar por TDD a Task 2 de `docs/superpowers/plans/2026-08-20-phase-1-domain-storage.md`, partindo do checkpoint `14d7710` e de sua revisão aprovada.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -17,7 +17,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | Fase | Estado | Evidência / próximo marco |
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
-| 1 — Domain model + storage | Em andamento | Exploração concluída; spec e plano TDD criados; Task 1 é o próximo marco. |
+| 1 — Domain model + storage | Em andamento | Task 1 aprovada; Task 2 (engine/schema/migration) é o próximo marco. |
 | 2 — Chemistry + Identity Resolver | Pendente | Aguardar gate Terra da Fase 1. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
@@ -54,6 +54,19 @@ Fase 0, em 2026-08-20:
 - Rollback de import é lógico e idempotente: provenance e audit não são apagados.
 - SQLite usa foreign keys em toda conexão e migrations Alembic empacotadas.
 - Não há cascata física ampla nem `metadata.create_all()` em produção.
+
+## Checkpoints da Fase 1
+
+### Task 1 — dependências e primitivas imutáveis
+
+- Estado: concluída e aprovada em re-review independente.
+- Commits: `529c56b` (implementação) e `14d7710` (hardening de fronteira).
+- Resultado: 58 testes aprovados e 92,65% de branch coverage global.
+- Gate: Ruff, mypy, lock check, pip-audit, build, pip check e diff check aprovados.
+- Contratos entregues: modelos Pydantic congelados, UUID4 canônico, timestamps UTC,
+  paths relativos seguros, JSON canônico sem chaves duplicadas e SHA-256 streaming.
+- Findings corrigidos: nomes públicos de serialização, UUID não canônico e perda de
+  informação em JSON com chaves duplicadas.
 
 ## Convenções de continuidade
 
