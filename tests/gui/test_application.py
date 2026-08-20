@@ -57,3 +57,32 @@ def test_application_main_logs_startup_failure_and_returns_one(
     assert "FideliChem application startup failed" in log_output
     assert "controlled startup failure" in log_output
     assert "Traceback" in log_output
+
+
+@pytest.mark.gui
+def test_application_main_uses_fallback_logger_when_logging_setup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def fail_to_configure_logging() -> logging.Logger:
+        raise RuntimeError("controlled logging configuration failure")
+
+    monkeypatch.setattr(
+        application_module,
+        "configure_logging",
+        fail_to_configure_logging,
+    )
+
+    with caplog.at_level(logging.ERROR):
+        assert main([]) == 1
+
+    records = [
+        record
+        for record in caplog.records
+        if record.getMessage() == "FideliChem application startup failed"
+    ]
+
+    assert len(records) == 1
+    assert records[0].exc_info is not None
+    assert "controlled logging configuration failure" in caplog.text
+    assert "Traceback" in caplog.text

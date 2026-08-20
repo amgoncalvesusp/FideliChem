@@ -1,3 +1,4 @@
+import logging
 import sys
 from collections.abc import Sequence
 
@@ -18,15 +19,17 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    logger = configure_logging()
+    logger: logging.Logger | None = None
     try:
+        logger = configure_logging()
         application = create_application(argv)
         window = MainWindow()
         window.show()
         logger.info("FideliChem application started")
         exit_code = application.exec()
     except Exception:
-        logger.exception("FideliChem application startup failed")
+        failure_logger = logger if logger is not None else logging.getLogger()
+        failure_logger.exception("FideliChem application startup failed")
         return 1
 
     logger.info("FideliChem application stopped with exit code %s", exit_code)
