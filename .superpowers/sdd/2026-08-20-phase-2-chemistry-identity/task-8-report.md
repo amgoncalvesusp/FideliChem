@@ -135,6 +135,8 @@ revision= 0002_chemistry_identity head= 0002_chemistry_identity integrity_check=
 
 - Implementation commit: `b152505` — `docs: complete phase two chemistry
   identity`.
+- Fix round 1/5 commit: `46490b3` — `docs: complete phase two chemistry
+  identity`.
 - This report is added in the follow-up documentation commit so the
   implementation hash is stable and directly verifiable.
 
