@@ -7,9 +7,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
-- Fase ativa: **Fase 1 — Domain model + storage**
-- Etapa ativa: correções obrigatórias do primeiro review integral da Fase 1
-- Próxima ação exata: implementar por TDD os três findings Important e o Minor listados abaixo, executar o gate completo e submeter um novo review integral.
+- Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
+- Etapa ativa: concluir o hardening do design/plano executável da Fase 2
+- Próxima ação exata: finalizar as alterações não commitadas nos dois documentos da Fase 2, submeter novo review Terra e somente após GO gerar o brief da Task 1.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -17,8 +17,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | Fase | Estado | Evidência / próximo marco |
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
-| 1 — Domain model + storage | Em andamento | Tasks 1–5 implementadas; aguardar revisão Terra e gate final da fase. |
-| 2 — Chemistry + Identity Resolver | Pendente | Aguardar gate Terra da Fase 1. |
+| 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
+| 2 — Chemistry + Identity Resolver | Em andamento | Spec/plano em hardening após primeiro review científico NO-GO; implementação ainda não iniciada. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -36,11 +36,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Último gate verificado
 
-Fase 1, antes da revisão integral, em 2026-08-20:
+Fase 1, gate final em 2026-08-20:
 
-- `pytest`: 160 testes aprovados;
-- cobertura global de branches: 89,46%;
-- cobertura scoped de `domain/provenance/storage/projects`: 89,29%;
+- `pytest`: 189 testes aprovados;
+- cobertura global de branches: 89,24%;
+- cobertura scoped de `domain/provenance/storage/projects`: 89,07% (166 testes);
 - Ruff e mypy: aprovados;
 - `uv lock`, build e `pip check`: aprovados;
 - `pip-audit`: nenhuma vulnerabilidade conhecida nas dependências publicadas;
@@ -143,6 +143,33 @@ Fase 1, antes da revisão integral, em 2026-08-20:
   persistida corrompida sem expor SQL.
 - Ponto de partida das correções: `1fc65e1`; writer TDD ativo e checkpoint
   documental reservado ao controller.
+
+### Review integral da Fase 1 — rodada 2
+
+- Estado: **GO** em spec compliance e qualidade/correção/segurança; nenhum
+  finding Critical, Important ou Minor remanescente.
+- Commit de correção: `c16b73c` (`fix: harden phase one storage boundaries`).
+- Entregue: update otimista e auditado de `Project`, inteiros públicos estritos,
+  paths canônicos garantidos também no SQLite e distinção segura entre falha de
+  leitura e dado persistido corrompido.
+- Evidência final: 189 testes, 89,24% de cobertura global de branches; Ruff,
+  mypy, lock, pip-audit, build, pip check e diff check aprovados.
+
+## Checkpoint da Fase 2
+
+- Design/plano inicial: `e34f0ac` (`docs: plan phase two chemistry identity`).
+- Primeiro review científico: NO-GO, sem Critical e com nove Important sobre
+  concorrência da cadeia de resoluções, projeção persistente, atomicidade,
+  atom maps, versionamento/limites da política RDKit, InChI opcional, matriz de
+  autoridade e semântica dos descritores.
+- Hardening em andamento nos arquivos
+  `docs/superpowers/specs/2026-08-20-phase-2-chemistry-identity-design.md` e
+  `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md`.
+- Estado de recuperação: as duas alterações estão intencionalmente não
+  commitadas porque o agente atingiu o limite durante a revisão do texto.
+- Próximo passo exato: terminar o plano, verificar consistência/placeholder,
+  commitá-lo como `docs: harden phase two identity design`, re-review Terra e
+  só então iniciar implementação TDD.
 
 ## Convenções de continuidade
 
