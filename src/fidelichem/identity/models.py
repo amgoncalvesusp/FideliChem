@@ -115,9 +115,13 @@ class ResolutionReport(DomainModel):
             ResolutionKind.EXACT_STATE: CatalogAction.REUSE_STATE,
             ResolutionKind.NEW_STATE: CatalogAction.REUSE_COMPOUND,
             ResolutionKind.NEW_COMPOUND: CatalogAction.CREATE_COMPOUND,
+            ResolutionKind.ALIAS_ONLY: CatalogAction.NONE,
+            ResolutionKind.AMBIGUOUS: CatalogAction.NONE,
+            ResolutionKind.CONFLICT: CatalogAction.NONE,
+            ResolutionKind.UNRESOLVED: CatalogAction.NONE,
         }
-        expected = required.get(self.kind)
-        if expected is not None and self.catalog_action is not expected:
+        expected = required[self.kind]
+        if self.catalog_action is not expected:
             raise ValueError("catalog_action does not match resolution kind")
         if self.catalog_match_dormant and self.catalog_action not in {
             CatalogAction.REUSE_STATE,

@@ -9,6 +9,13 @@ from sqlalchemy import Engine, exists, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from fidelichem.domain.chemistry import (
+    Compound,
+    IdentityDecision,
+    IdentityResolution,
+    MolecularState,
+)
+from fidelichem.domain.models import ActorKind
 from fidelichem.identity.models import (
     EvidenceKind,
     ResolutionCandidate,
@@ -139,6 +146,7 @@ class PersistentIdentityIndex:
                 select(
                     _IdentityResolutionRow,
                     _MolecularStateRow,
+                    _CompoundRow,
                 )
                 .join(
                     _AliasRow,
@@ -148,7 +156,7 @@ class PersistentIdentityIndex:
                     _ImportBatchRow,
                     _ImportBatchRow.id == _AliasRow.import_batch_id,
                 )
-                .join(
+                .outerjoin(
                     _CompoundRow,
                     _CompoundRow.id == _IdentityResolutionRow.compound_id,
                 )
@@ -161,7 +169,6 @@ class PersistentIdentityIndex:
                     _AliasRow.source_system == source_system,
                     _AliasRow.source_value == source_value,
                     _IdentityResolutionRow.decision != "retracted",
-                    _IdentityResolutionRow.compound_id.is_not(None),
                 )
             )
             successor = _IdentityResolutionRow.__table__.alias("successor")
@@ -181,8 +188,8 @@ class PersistentIdentityIndex:
             return _safe_read(
                 "identity resolution",
                 lambda: tuple(
-                    _active_candidate(resolution, state)
-                    for resolution, state in session.execute(statement)
+                    _active_candidate(resolution, state, compound)
+                    for resolution, state, compound in session.execute(statement)
                 ),
             )
 
@@ -263,10 +270,11 @@ def _compound_candidate(
     *,
     evidence: EvidenceKind = EvidenceKind.CATALOG_PARENT,
 ) -> ResolutionCandidate:
+    compound = _compound_model(row)
     return _safe_read(
         "compound",
         lambda: ResolutionCandidate(
-            compound_id=row.id,
+            compound_id=compound.id,
             evidence=(evidence,),
             catalog_dormant=not active,
         ),
@@ -280,13 +288,75 @@ def _state_candidate(
     *,
     evidence: EvidenceKind = EvidenceKind.CATALOG_STATE,
 ) -> ResolutionCandidate:
+    compound_value = _compound_model(compound)
+    state_value = _state_model(state)
+    if state_value.compound_id != compound_value.id:
+        raise CorruptStoredDataError("stored molecular state data is invalid")
     return _safe_read(
         "molecular state",
         lambda: ResolutionCandidate(
-            compound_id=compound.id,
-            molecular_state_id=state.id,
+            compound_id=compound_value.id,
+            molecular_state_id=state_value.id,
             evidence=(evidence,),
             catalog_dormant=not active,
+        ),
+    )
+
+
+def _compound_model(row: _CompoundRow) -> Compound:
+    return _safe_read(
+        "compound",
+        lambda: Compound(
+            id=row.id,
+            canonical_smiles=row.canonical_smiles,
+            isomeric_smiles=row.isomeric_smiles,
+            inchikey=row.inchikey,
+            formula=row.formula,
+            molecular_weight=row.molecular_weight,
+            structure_hash=row.structure_hash,
+            chemistry_policy_id=row.chemistry_policy_id,
+            rdkit_version=row.rdkit_version,
+            inchi_version=row.inchi_version,
+            created_at=row.created_at,
+        ),
+    )
+
+
+def _state_model(row: _MolecularStateRow) -> MolecularState:
+    return _safe_read(
+        "molecular state",
+        lambda: MolecularState(
+            id=row.id,
+            compound_id=row.compound_id,
+            state_smiles=row.state_smiles,
+            state_inchikey=row.state_inchikey,
+            formal_charge=row.formal_charge,
+            stereochemistry_signature=row.stereochemistry_signature,
+            protonation_signature=row.protonation_signature,
+            tautomer_signature=row.tautomer_signature,
+            state_hash=row.state_hash,
+            chemistry_policy_id=row.chemistry_policy_id,
+            rdkit_version=row.rdkit_version,
+            inchi_version=row.inchi_version,
+            preparation_ph=row.preparation_ph,
+        ),
+    )
+
+
+def _resolution_model(row: _IdentityResolutionRow) -> IdentityResolution:
+    return _safe_read(
+        "identity resolution",
+        lambda: IdentityResolution(
+            id=row.id,
+            alias_id=row.alias_id,
+            decision=IdentityDecision(row.decision),
+            compound_id=row.compound_id,
+            molecular_state_id=row.molecular_state_id,
+            supersedes_id=row.supersedes_id,
+            decided_at=row.decided_at,
+            actor_kind=ActorKind(row.actor_kind),
+            actor_id=row.actor_id,
+            rationale=row.rationale,
         ),
     )
 
@@ -294,14 +364,29 @@ def _state_candidate(
 def _active_candidate(
     resolution: _IdentityResolutionRow,
     state: _MolecularStateRow | None,
+    compound: _CompoundRow | None,
 ) -> ResolutionCandidate:
     def convert() -> ResolutionCandidate:
-        if resolution.compound_id is None:
+        resolution_value = _resolution_model(resolution)
+        if compound is None:
+            raise ValueError("resolution compound target is missing")
+        compound_value = _compound_model(compound)
+        if resolution_value.compound_id is None:
             raise ValueError("missing compound target")
+        if resolution_value.compound_id != compound_value.id:
+            raise ValueError("resolution target does not match compound")
+        state_value = None if state is None else _state_model(state)
+        if resolution_value.molecular_state_id is not None and state_value is None:
+            raise ValueError("resolution state target is missing")
+        if (
+            state_value is not None
+            and state_value.compound_id != resolution_value.compound_id
+        ):
+            raise ValueError("resolution state target does not match compound")
         return ResolutionCandidate(
-            compound_id=resolution.compound_id,
-            molecular_state_id=None if state is None else state.id,
-            resolution_id=resolution.id,
+            compound_id=compound_value.id,
+            molecular_state_id=None if state_value is None else state_value.id,
+            resolution_id=resolution_value.id,
             evidence=(EvidenceKind.ACTIVE_ALIAS,),
             catalog_dormant=False,
         )
