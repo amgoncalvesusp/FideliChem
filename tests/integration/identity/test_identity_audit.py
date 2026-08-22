@@ -10,6 +10,8 @@ from sqlalchemy import Engine
 
 from fidelichem.domain.chemistry import (
     CanonicalizationResult,
+    ChemistryWarning,
+    ChemistryWarningCode,
     Compound,
     IdentityActor,
     IdentityClaim,
@@ -134,8 +136,23 @@ def _result() -> CanonicalizationResult:
 
 def test_audit_payload_is_canonical_and_batch_correlated(migrated_engine) -> None:
     _seed_project_batch(migrated_engine)
+    base = _result()
+    result = base.model_copy(
+        update={
+            "compound": base.compound.model_copy(update={"inchi_version": None}),
+            "molecular_state": base.molecular_state.model_copy(
+                update={"inchi_version": None}
+            ),
+            "warnings": (
+                ChemistryWarning(
+                    code=ChemistryWarningCode.INCHI_UNAVAILABLE,
+                    message="InChI unavailable",
+                ),
+            ),
+        }
+    )
     _service(migrated_engine).confirm_claim(
-        _result(),
+        result,
         _claim(),
         _report(),
         IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
@@ -155,6 +172,21 @@ def test_audit_payload_is_canonical_and_batch_correlated(migrated_engine) -> Non
             separators=(",", ":"),
         )
         payload = json.loads(event.new_value_json or "{}")
+        assert payload["policy_id"] == result.chemistry_policy_id
+        assert payload["chemistry_policy_id"] == result.chemistry_policy_id
+        assert payload["rdkit_version"] == result.compound.rdkit_version
+        assert payload["inchi_version"] is None
+        assert payload["structure_hash"] == result.compound.structure_hash
+        assert payload["state_hash"] == result.molecular_state.state_hash
+        assert payload["report_kind"] == ResolutionKind.NEW_COMPOUND.value
+        assert payload["catalog_action"] == CatalogAction.CREATE_COMPOUND.value
+        assert payload["catalog_match_dormant"] is False
+        assert payload["reuse_after_race"] is False
+        assert payload["warnings"] == [ChemistryWarningCode.INCHI_UNAVAILABLE.value]
+        assert payload["warning_codes"] == [
+            ChemistryWarningCode.INCHI_UNAVAILABLE.value
+        ]
+        assert payload["inchi_unavailable"] is True
         assert payload["selected_target"] == {
             "compound_id": COMPOUND_ID,
             "molecular_state_id": "44444444-4444-4444-8444-444444444444",
@@ -186,7 +218,13 @@ def test_reassignment_audit_contains_prior_and_new_target(migrated_engine) -> No
     )
     with UnitOfWork(migrated_engine) as uow:
         event = uow.audit_events.list_by_batch(BATCH_ID)[1]
+        assert event.action == "identity.reassigned"
+        assert event.import_batch_id == BATCH_ID
         payload = json.loads(event.new_value_json or "{}")
+        assert json.loads(event.old_value_json or "{}") == {
+            "compound_id": COMPOUND_ID,
+            "molecular_state_id": "44444444-4444-4444-8444-444444444444",
+        }
         assert payload["prior_target"] == {
             "compound_id": COMPOUND_ID,
             "molecular_state_id": "44444444-4444-4444-8444-444444444444",
@@ -195,3 +233,6 @@ def test_reassignment_audit_contains_prior_and_new_target(migrated_engine) -> No
             "compound_id": COMPOUND_ID,
             "molecular_state_id": None,
         }
+        assert payload["actor_kind"] == ActorKind.USER.value
+        assert payload["actor_id"] == "reviewer"
+        assert payload["rationale"] == "confirmed by review"

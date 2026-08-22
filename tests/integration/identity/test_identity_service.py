@@ -197,6 +197,93 @@ def _seed_project_batch(engine: Engine) -> None:
         uow.import_batches.add(_batch())
 
 
+class _InterposingIndex:
+    def __init__(self, delegate: PersistentIdentityIndex, mutate: Callable[[], None]):
+        self._delegate = delegate
+        self._mutate = mutate
+        self._mutated = False
+
+    def catalog_by_state_hash(self, state_hash: str):
+        return self._delegate.catalog_by_state_hash(state_hash)
+
+    def catalog_by_parent_hash(self, parent_hash: str):
+        return self._delegate.catalog_by_parent_hash(parent_hash)
+
+    def active_by_alias(self, source_system: str, source_value: str):
+        return self._delegate.active_by_alias(source_system, source_value)
+
+    def catalog_by_generated_inchikey(self, inchikey: str):
+        values = self._delegate.catalog_by_generated_inchikey(inchikey)
+        if not self._mutated:
+            self._mutated = True
+            self._mutate()
+        return values
+
+
+def _interposed_service(
+    engine: Engine, mutate: Callable[[], None]
+) -> IdentityService:
+    calls = 0
+
+    def make_index():
+        nonlocal calls
+        calls += 1
+        index = PersistentIdentityIndex(engine)
+        return _InterposingIndex(index, mutate) if calls == 1 else index
+
+    return IdentityService(
+        uow_factory=lambda: UnitOfWork(engine),
+        index_factory=make_index,
+        clock=lambda: NOW,
+    )
+
+
+def _insert_interposed_parent(engine: Engine) -> None:
+    with UnitOfWork(engine) as uow:
+        uow.compounds.add(_result().compound)
+
+
+def _insert_interposed_exact(engine: Engine) -> None:
+    with UnitOfWork(engine) as uow:
+        result = _result()
+        uow.compounds.add(result.compound)
+        uow.molecular_states.add(result.molecular_state)
+
+
+def _insert_interposed_alias_conflict(engine: Engine) -> None:
+    result = _result()
+    other = _result(
+        compound_id="77777777-7777-4777-8777-777777777777",
+        state_id="88888888-8888-4888-8888-888888888888",
+        structure_hash="c" * 64,
+        state_hash="d" * 64,
+    )
+    with UnitOfWork(engine) as uow:
+        uow.compounds.add(result.compound)
+        uow.compounds.add(other.compound)
+        prior_batch = _batch().model_copy(
+            update={"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
+        )
+        uow.import_batches.add(prior_batch)
+        alias = uow.aliases.add(
+            Alias(
+                source_system="gold",
+                source_value="ligand-1",
+                import_batch_id=prior_batch.id,
+                created_at=NOW,
+            )
+        )
+        uow.identity_resolutions.add(
+            IdentityResolution(
+                alias_id=alias.id,
+                decision=IdentityDecision.CONFIRMED,
+                compound_id=other.compound.id,
+                decided_at=NOW,
+                actor_kind=ActorKind.SYSTEM,
+            )
+        )
+
+
 def test_confirm_new_compound_persists_atomic_identity_and_audit(
     migrated_engine: Engine,
 ) -> None:
@@ -285,6 +372,50 @@ def test_confirm_rejects_stale_new_state_when_live_state_is_exact(
             ),
             _actor(),
         )
+
+
+@pytest.mark.parametrize(
+    ("mutator", "label"),
+    (
+        (_insert_interposed_parent, "parent"),
+        (_insert_interposed_exact, "exact"),
+        (_insert_interposed_alias_conflict, "alias"),
+    ),
+)
+def test_confirm_revalidates_after_interposed_write_without_extra_rows(
+    migrated_engine: Engine,
+    mutator: Callable[[Engine], None],
+    label: str,
+) -> None:
+    _seed_project_batch(migrated_engine)
+    service = _interposed_service(
+        migrated_engine, lambda: mutator(migrated_engine)
+    )
+    if label == "alias":
+        with pytest.raises(ValueError, match="stale"):
+            service.confirm_claim(
+                _result(),
+                _claim(),
+                _report(),
+                IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+                _actor(),
+            )
+    else:
+        service.confirm_claim(
+            _result(),
+            _claim(),
+            _report(),
+            IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+            _actor(),
+        )
+    with UnitOfWork(migrated_engine) as uow:
+        if label == "alias":
+            assert uow.aliases.list_by_batch(BATCH_ID) == ()
+            assert uow.audit_events.list_by_batch(BATCH_ID) == ()
+        else:
+            assert len(uow.aliases.list_by_batch(BATCH_ID)) == 1
+            event = uow.audit_events.list_by_batch(BATCH_ID)[0]
+            assert json.loads(event.new_value_json or "{}")["reuse_after_race"] is True
 
 
 def test_confirm_result_and_claim_smiles_are_mutually_required_before_uow(

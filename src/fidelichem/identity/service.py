@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 
 from fidelichem.domain.chemistry import (
     Alias,
@@ -31,6 +32,7 @@ from fidelichem.identity.resolver import IdentityResolver
 from fidelichem.storage.repositories import (
     DuplicateRecordError,
     RecordNotFoundError,
+    StorageWriteError,
 )
 from fidelichem.storage.session import UnitOfWork
 
@@ -70,9 +72,21 @@ class IdentityService:
             raise ValueError("persistence prerequisites are required")
         if claim.source_value is None:
             raise ValueError("persistence prerequisites are required")
+        if report.kind is ResolutionKind.NEW_COMPOUND:
+            self._hit("before_chemistry")
+        elif report.kind is ResolutionKind.NEW_STATE:
+            self._hit("before_state")
         self._validate_live_report(result, claim, report, selection)
         try:
             with self._uow_factory() as uow:
+                self._reserve_write(uow)
+                reuse_after_race = self._validate_live_report(
+                    result,
+                    claim,
+                    report,
+                    selection,
+                    allow_structure_race=True,
+                )
                 return self._confirm_in_uow(
                     uow,
                     result,
@@ -80,7 +94,7 @@ class IdentityService:
                     report,
                     selection,
                     actor,
-                    reuse_after_race=False,
+                    reuse_after_race=reuse_after_race,
                 )
         except DuplicateRecordError:
             if (
@@ -93,6 +107,7 @@ class IdentityService:
             ):
                 raise
             with self._uow_factory() as uow:
+                self._reserve_write(uow)
                 return self._confirm_in_uow(
                     uow,
                     result,
@@ -261,7 +276,9 @@ class IdentityService:
         claim: IdentityClaim,
         report: ResolutionReport,
         selection: IdentitySelection,
-    ) -> None:
+        *,
+        allow_structure_race: bool = False,
+    ) -> bool:
         """Reject a caller-supplied report which is stale at the write boundary."""
         try:
             live = IdentityResolver().resolve(
@@ -276,9 +293,11 @@ class IdentityService:
             or live.catalog_action is not report.catalog_action
             or live.catalog_match_dormant != report.catalog_match_dormant
         ):
+            if allow_structure_race and self._is_structure_race(report, live, result):
+                return True
             raise ValueError("stale resolution report")
         if report.kind is ResolutionKind.NEW_COMPOUND:
-            return
+            return False
         if selection.mode is not SelectionMode.EXISTING_TARGET:
             raise ValueError("selection does not match live report authority")
         if report.kind in {ResolutionKind.ALIAS_ONLY, ResolutionKind.AMBIGUOUS}:
@@ -294,6 +313,35 @@ class IdentityService:
             )
         if not valid:
             raise ValueError("stale resolution report")
+        return False
+
+    @staticmethod
+    def _is_structure_race(
+        report: ResolutionReport,
+        live: ResolutionReport,
+        result: CanonicalizationResult | None,
+    ) -> bool:
+        if result is None:
+            return False
+        if report.kind is ResolutionKind.NEW_COMPOUND:
+            return live.kind in {
+                ResolutionKind.NEW_STATE,
+                ResolutionKind.EXACT_STATE,
+            }
+        return (
+            report.kind is ResolutionKind.NEW_STATE
+            and live.kind is ResolutionKind.EXACT_STATE
+        )
+
+    @staticmethod
+    def _reserve_write(uow: UnitOfWork) -> None:
+        """Take SQLite's writer reservation before the final authority read."""
+        try:
+            uow.session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        except SQLAlchemyError:
+            raise StorageWriteError(
+                "identity confirmation could not reserve its write transaction"
+            ) from None
 
     @staticmethod
     def _validate_selection(selection: IdentitySelection) -> IdentitySelection:
@@ -371,7 +419,6 @@ class IdentityService:
                 result.compound.structure_hash
             )
             if existing is None:
-                self._hit("before_chemistry")
                 uow.compounds.add(result.compound)
                 target_compound = result.compound.id
             else:
@@ -383,7 +430,6 @@ class IdentityService:
                 state = result.molecular_state.model_copy(
                     update={"compound_id": target_compound}
                 )
-                self._hit("before_state")
                 uow.molecular_states.add(state)
                 self._hit("after_state")
                 target_state = state.id
@@ -409,7 +455,6 @@ class IdentityService:
                 state = result.molecular_state.model_copy(
                     update={"compound_id": target_compound}
                 )
-                self._hit("before_state")
                 uow.molecular_states.add(state)
                 self._hit("after_state")
                 target_state = state.id
