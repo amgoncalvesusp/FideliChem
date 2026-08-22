@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: Task 6 — resolver puro com matriz explícita de autoridade
-- Próxima ação exata: implementar por TDD a Task 6 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `0ebaa0d`.
+- Etapa ativa: Task 7 — confirmação atômica auditada e cadeias reversíveis
+- Próxima ação exata: implementar por TDD a Task 7 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `4bb6211`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -18,7 +18,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–5 concluídas; Task 6 (resolver puro) é o próximo marco. |
+| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–6 concluídas; Task 7 (serviço atômico/auditado) é o próximo marco. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -262,6 +262,28 @@ Fase 1, gate final em 2026-08-20:
 - Lifecycle: retraction, restore, supersession e rollback lógico preservam o
   catálogo e ocultam somente evidência inativa; cadeias válidas profundas e
   `confirmed→retracted→restored` retornam apenas a folha ativa.
+- Gate: Ruff, mypy, lock, pip-audit, build, pip check e diff check aprovados;
+  review final GO sem Critical, Important ou Minor.
+
+### Task 6 — resolver puro com matriz explícita de autoridade
+
+- Estado: concluída e aprovada após duas rodadas de hardening e review GO.
+- Commits: `eaa8dc4` (implementação), `c6ba747` (evidência completa) e
+  `4bb6211` (boundary/fail-fast e composição persistente).
+- Resultado: 424 testes completos; cobertura global de branches 91,96% e
+  resolver com 96% de branches.
+- Entregue: `IdentityResolver` puro e determinístico, sem RDKit, storage,
+  SQLAlchemy ou escrita; resultados EXACT_STATE, NEW_STATE, NEW_COMPOUND,
+  ALIAS_ONLY, AMBIGUOUS, CONFLICT e UNRESOLVED.
+- Evidência: candidatos estruturais, parent, InChI gerado/fornecido e aliases
+  ativos são acumulados antes da decisão; conflitos preservam todos os alvos
+  reportáveis e nunca fazem merge por evidência fraca.
+- Autoridade: conflitos são sensíveis ao estado; alias apenas de Compound é a
+  exceção explícita para o mesmo parent; claims incompletos para persistência
+  continuam válidos no resolver; inputs inválidos falham antes de tocar índice.
+- Integração: supersession, retraction e rollback independentes após reopen;
+  Compound ativo com estados irmãos dormentes; cobertura sistêmica de stereo,
+  carga/protômero e tautômero.
 - Gate: Ruff, mypy, lock, pip-audit, build, pip check e diff check aprovados;
   review final GO sem Critical, Important ou Minor.
 
