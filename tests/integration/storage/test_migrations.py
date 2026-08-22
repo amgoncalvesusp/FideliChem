@@ -107,7 +107,11 @@ def test_blank_database_migrates_to_head_and_has_expected_objects(
     assert set(inspector.get_table_names()) == {
         "alembic_version",
         "audit_event",
+        "alias",
+        "compound",
+        "identity_resolution",
         "import_batch",
+        "molecular_state",
         "project",
         "source_artifact",
     }
@@ -133,6 +137,15 @@ def test_blank_database_migrates_to_head_and_has_expected_objects(
         "trg_audit_event_sequence_assign",
         "trg_audit_event_no_update",
         "trg_audit_event_no_delete",
+        "trg_compound_no_update",
+        "trg_compound_no_delete",
+        "trg_molecular_state_no_update",
+        "trg_molecular_state_no_delete",
+        "trg_alias_no_update",
+        "trg_alias_no_delete",
+        "trg_identity_resolution_validate_insert",
+        "trg_identity_resolution_no_update",
+        "trg_identity_resolution_no_delete",
     }.issubset(trigger_names)
     engine.dispose()
 
@@ -248,6 +261,7 @@ def test_migration_runner_does_not_use_metadata_create_all() -> None:
         Path("src/fidelichem/storage/runner.py"),
         Path("src/fidelichem/storage/migrations/env.py"),
         Path("src/fidelichem/storage/migrations/versions/0001_initial_storage.py"),
+        Path("src/fidelichem/storage/migrations/versions/0002_chemistry_identity.py"),
     )
     for source_file in source_files:
         assert "metadata.create_all" not in source_file.read_text(encoding="utf-8")

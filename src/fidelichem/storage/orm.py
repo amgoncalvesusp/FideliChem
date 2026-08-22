@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     CheckConstraint,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -270,3 +271,250 @@ class _AuditEventRow(Base):
         server_default=text("'system'"),
     )
     actor_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+_INCHI_CHECK = (
+    "{column} IS NULL OR (length({column}) = 27 AND "
+    "substr({column}, 15, 1) = '-' AND substr({column}, 26, 1) = '-' AND "
+    "substr({column}, 1, 14) NOT GLOB '*[^A-Z]*' AND "
+    "substr({column}, 16, 10) NOT GLOB '*[^A-Z]*' AND "
+    "substr({column}, 27, 1) GLOB '[A-Z]')"
+)
+
+
+class _CompoundRow(Base):
+    __tablename__ = "compound"
+    __table_args__ = (
+        Index("ix_compound_structure_hash", "structure_hash"),
+        Index("ix_compound_inchikey", "inchikey"),
+        UniqueConstraint("structure_hash", name="uq_compound_structure_hash"),
+        CheckConstraint(
+            "length(trim(canonical_smiles)) > 0", name="ck_compound_canonical_smiles"
+        ),
+        CheckConstraint(
+            "length(trim(isomeric_smiles)) > 0", name="ck_compound_isomeric_smiles"
+        ),
+        CheckConstraint("length(trim(formula)) > 0", name="ck_compound_formula"),
+        CheckConstraint("molecular_weight > 0", name="ck_compound_molecular_weight"),
+        CheckConstraint(
+            "length(structure_hash) = 64 AND structure_hash = lower(structure_hash) "
+            "AND structure_hash NOT GLOB '*[^0-9a-f]*'",
+            name="ck_compound_structure_hash",
+        ),
+        CheckConstraint(
+            "length(trim(chemistry_policy_id)) > 0", name="ck_compound_policy"
+        ),
+        CheckConstraint(
+            "length(trim(rdkit_version)) > 0", name="ck_compound_rdkit_version"
+        ),
+        CheckConstraint(
+            "inchi_version IS NULL OR length(trim(inchi_version)) > 0",
+            name="ck_compound_inchi_version",
+        ),
+        CheckConstraint(
+            _INCHI_CHECK.format(column="inchikey"), name="ck_compound_inchikey"
+        ),
+        CheckConstraint("created_at LIKE '%Z'", name="ck_compound_created_at_utc"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    canonical_smiles: Mapped[str] = mapped_column(Text)
+    isomeric_smiles: Mapped[str] = mapped_column(Text)
+    inchikey: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    formula: Mapped[str] = mapped_column(Text)
+    molecular_weight: Mapped[float] = mapped_column(Float)
+    structure_hash: Mapped[str] = mapped_column(String(64))
+    chemistry_policy_id: Mapped[str] = mapped_column(Text)
+    rdkit_version: Mapped[str] = mapped_column(Text)
+    inchi_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcTimestamp())
+
+
+class _MolecularStateRow(Base):
+    __tablename__ = "molecular_state"
+    __table_args__ = (
+        Index("ix_molecular_state_compound_id", "compound_id"),
+        Index("ix_molecular_state_state_hash", "state_hash"),
+        Index("ix_molecular_state_inchikey", "state_inchikey"),
+        UniqueConstraint("state_hash", name="uq_molecular_state_hash"),
+        CheckConstraint(
+            "length(trim(state_smiles)) > 0", name="ck_molecular_state_smiles"
+        ),
+        CheckConstraint(
+            "length(trim(stereochemistry_signature)) > 0",
+            name="ck_molecular_state_stereo",
+        ),
+        CheckConstraint(
+            "length(trim(protonation_signature)) > 0",
+            name="ck_molecular_state_protonation",
+        ),
+        CheckConstraint(
+            "length(trim(tautomer_signature)) > 0", name="ck_molecular_state_tautomer"
+        ),
+        CheckConstraint(
+            "length(state_hash) = 64 AND state_hash = lower(state_hash) "
+            "AND state_hash NOT GLOB '*[^0-9a-f]*'",
+            name="ck_molecular_state_hash",
+        ),
+        CheckConstraint(
+            "length(trim(chemistry_policy_id)) > 0", name="ck_molecular_state_policy"
+        ),
+        CheckConstraint(
+            "length(trim(rdkit_version)) > 0", name="ck_molecular_state_rdkit_version"
+        ),
+        CheckConstraint(
+            "inchi_version IS NULL OR length(trim(inchi_version)) > 0",
+            name="ck_molecular_state_inchi_version",
+        ),
+        CheckConstraint(
+            _INCHI_CHECK.format(column="state_inchikey"),
+            name="ck_molecular_state_inchikey",
+        ),
+        CheckConstraint(
+            "preparation_ph IS NULL OR (preparation_ph >= 0 AND preparation_ph <= 14)",
+            name="ck_molecular_state_ph",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    compound_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "compound.id", name="fk_molecular_state_compound", ondelete="RESTRICT"
+        ),
+    )
+    state_smiles: Mapped[str] = mapped_column(Text)
+    state_inchikey: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    formal_charge: Mapped[int] = mapped_column(Integer)
+    stereochemistry_signature: Mapped[str] = mapped_column(Text)
+    protonation_signature: Mapped[str] = mapped_column(Text)
+    tautomer_signature: Mapped[str] = mapped_column(Text)
+    state_hash: Mapped[str] = mapped_column(String(64))
+    chemistry_policy_id: Mapped[str] = mapped_column(Text)
+    rdkit_version: Mapped[str] = mapped_column(Text)
+    inchi_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preparation_ph: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class _AliasRow(Base):
+    __tablename__ = "alias"
+    __table_args__ = (
+        Index("ix_alias_import_batch_id", "import_batch_id"),
+        Index("ix_alias_source", "source_system", "source_value"),
+        UniqueConstraint(
+            "import_batch_id",
+            "source_system",
+            "source_value",
+            name="uq_alias_batch_source",
+        ),
+        CheckConstraint(
+            "length(source_system) BETWEEN 1 AND 128 AND "
+            "source_system NOT GLOB '*[^a-z0-9._-]*' AND "
+            "substr(source_system, 1, 1) GLOB '[a-z0-9]'",
+            name="ck_alias_source_system_format",
+        ),
+        CheckConstraint(
+            "length(source_value) BETWEEN 1 AND 1024 AND "
+            "length(trim(source_value)) > 0 AND "
+            "instr(source_value, char(0)) = 0",
+            name="ck_alias_source_value_bounds",
+        ),
+        CheckConstraint("created_at LIKE '%Z'", name="ck_alias_created_at_utc"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    source_system: Mapped[str] = mapped_column(Text)
+    source_value: Mapped[str] = mapped_column(Text)
+    import_batch_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "import_batch.id", name="fk_alias_import_batch", ondelete="RESTRICT"
+        ),
+    )
+    created_at: Mapped[datetime] = mapped_column(UtcTimestamp())
+
+
+class _IdentityResolutionRow(Base):
+    __tablename__ = "identity_resolution"
+    __table_args__ = (
+        Index(
+            "uq_identity_resolution_alias_root",
+            "alias_id",
+            unique=True,
+            sqlite_where=text("supersedes_id IS NULL"),
+        ),
+        Index("ix_identity_resolution_alias_id", "alias_id"),
+        Index("ix_identity_resolution_compound_id", "compound_id"),
+        Index("ix_identity_resolution_molecular_state_id", "molecular_state_id"),
+        UniqueConstraint("supersedes_id", name="uq_identity_resolution_supersedes"),
+        CheckConstraint(
+            "decision IN ('confirmed', 'reassigned', 'retracted', 'restored')",
+            name="ck_identity_resolution_decision",
+        ),
+        CheckConstraint(
+            "(decision = 'confirmed' AND compound_id IS NOT NULL AND "
+            "supersedes_id IS NULL) OR "
+            "(decision = 'reassigned' AND compound_id IS NOT NULL AND "
+            "supersedes_id IS NOT NULL) OR "
+            "(decision = 'retracted' AND compound_id IS NULL AND "
+            "molecular_state_id IS NULL AND supersedes_id IS NOT NULL) OR "
+            "(decision = 'restored' AND compound_id IS NOT NULL AND "
+            "supersedes_id IS NOT NULL AND actor_kind = 'user' AND "
+            "rationale IS NOT NULL)",
+            name="ck_identity_resolution_shape",
+        ),
+        CheckConstraint(
+            "actor_kind IN ('user', 'system')", name="ck_identity_resolution_actor_kind"
+        ),
+        CheckConstraint(
+            "(actor_kind = 'system' AND actor_id IS NULL) OR "
+            "(actor_kind = 'user' AND length(trim(actor_id)) > 0)",
+            name="ck_identity_resolution_actor",
+        ),
+        CheckConstraint(
+            "rationale IS NULL OR (length(trim(rationale)) > 0 AND "
+            "length(rationale) <= 1024 AND instr(rationale, char(0)) = 0)",
+            name="ck_identity_resolution_rationale",
+        ),
+        CheckConstraint(
+            "decided_at LIKE '%Z'", name="ck_identity_resolution_decided_at_utc"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    alias_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "alias.id", name="fk_identity_resolution_alias", ondelete="RESTRICT"
+        ),
+    )
+    decision: Mapped[str] = mapped_column(String(20))
+    compound_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "compound.id", name="fk_identity_resolution_compound", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
+    molecular_state_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "molecular_state.id",
+            name="fk_identity_resolution_state",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+    supersedes_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "identity_resolution.id",
+            name="fk_identity_resolution_supersedes",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+    decided_at: Mapped[datetime] = mapped_column(UtcTimestamp())
+    actor_kind: Mapped[str] = mapped_column(String(10))
+    actor_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
