@@ -188,6 +188,7 @@ class ImportManager:
                 if compound.source_smiles:
                     canon_result = self._chemistry_service.canonicalize(
                         compound.source_smiles,
+                        preparation_ph=compound.preparation_ph,
                         created_at=now,
                     )
 
@@ -335,10 +336,15 @@ class ImportManager:
                     f"Report {report.kind} requires at least one candidate"
                 )
             cand = report.candidates[0]
+            state_id = (
+                cand.molecular_state_id
+                if report.kind is ResolutionKind.EXACT_STATE
+                else None
+            )
             return IdentitySelection(
                 mode=SelectionMode.EXISTING_TARGET,
                 compound_id=cand.compound_id,
-                molecular_state_id=cand.molecular_state_id,
+                molecular_state_id=state_id,
             )
 
         raise ValueError(

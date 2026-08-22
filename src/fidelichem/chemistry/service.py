@@ -177,8 +177,13 @@ class ChemistryService:
     policy: ChemistryPolicy = DEFAULT_POLICY
 
     def canonicalize(
-        self, source_smiles: str, *, created_at: datetime
+        self,
+        source_smiles: str,
+        *,
+        preparation_ph: float | None = None,
+        created_at: datetime,
     ) -> CanonicalizationResult:
+
         runtime_version = _runtime_version()
         identity = self._parse_identity(source_smiles)
         organic = _organic_components(identity)
@@ -273,6 +278,7 @@ class ChemistryService:
                 chemistry_policy_id=self.policy.policy_id,
                 rdkit_version=runtime_version,
                 inchi_version=inchi_version,
+                preparation_ph=preparation_ph,
             )
             return CanonicalizationResult(
                 source_smiles=source_smiles,

@@ -33,6 +33,10 @@ All notable changes to FideliChem will be documented in this file.
 - GOLD configuration and parameter parser (`gold.conf` / `gold.params`), ranking list parser (`bestranking.lst`, `gold_ranking.txt`, `ranking.csv`), and multi-molecule TRIPOS MOL2 solution parser (`gold_soln_*.mol2`).
 - Multi-scoring extraction preserving distinct observations for ChemPLP, GoldScore, ChemScore, ASP, and additional rescores across multiple runs without cross-contamination.
 - GOLD QC issue diagnostic reporting for duplicate pose IDs, missing solution files, and incomplete runs.
+- SMILES2Select Evidence Adapter (`Smiles2SelectAdapter`) parsing compound selection campaigns from SQLite, JSON, and CSV with selection decisions, QED, SA score, and physicochemical properties.
+- SMILES2Docking Evidence Adapter (`Smiles2DockingAdapter`) parsing 3D ligand preparation runs, target pH protonation states, energy minimization methods, and structural artifact links.
+- Cross-evidence identity resolution pipeline enabling continuous tracking from selection filtering through ligand preparation to docking poses under a unified chemical compound identity.
+
 
 
 
