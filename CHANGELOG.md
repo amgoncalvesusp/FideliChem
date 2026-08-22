@@ -43,6 +43,11 @@ All notable changes to FideliChem will be documented in this file.
 - GROMACS XVG analytical curve parser (`parse_xvg`) extracting multi-series curves, legends, units, and summary statistics (min, max, mean, std).
 - GROMACS Evidence Adapter (`GromacsAdapter`) parsing RMSD, RMSF, Radius of Gyration, SASA, and energy curves.
 - MolDynStudio Evidence Adapter (`MolDynStudioAdapter`) ingesting simulation manifests, trajectory parameters, and time-series metrics.
+- Score consensus engine (`compute_score_consensus`) calculating percentile medians, weighted averages, and rank dispersions across arbitrary scoring functions with missing data preservation.
+- Scoring agreement metrics (`compute_molecule_agreement`, `compute_campaign_agreement`) calculating Spearman and Kendall rank correlations, top-k Jaccard overlap, and per-candidate agreement levels (HIGH, MODERATE, LOW).
+- Multi-objective Pareto optimization (`compute_pareto_fronts`) executing fast non-dominated sorting across multi-dimensional criteria with strict directionality and non-destructive missing data handling.
+- Unified `AnalyticsEngine` facade coordinating multi-fidelity scoring, agreement, and Pareto analytics.
+
 
 
 
