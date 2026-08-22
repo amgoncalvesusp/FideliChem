@@ -12,6 +12,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 if TYPE_CHECKING:
+    from .chemistry_repositories import (
+        AliasRepository,
+        CompoundRepository,
+        IdentityResolutionRepository,
+        MolecularStateRepository,
+    )
     from .repositories import (
         AuditRepository,
         ImportBatchRepository,
@@ -75,6 +81,10 @@ class UnitOfWork:
         self._repositories: tuple[_RepositoryLifecycle, ...] = ()
 
     if TYPE_CHECKING:
+        compounds: CompoundRepository
+        molecular_states: MolecularStateRepository
+        aliases: AliasRepository
+        identity_resolutions: IdentityResolutionRepository
         projects: ProjectRepository
         import_batches: ImportBatchRepository
         source_artifacts: SourceArtifactRepository
@@ -112,6 +122,12 @@ class UnitOfWork:
     def _install_repositories(self) -> None:
         # Imported lazily to avoid a module cycle: repositories use the safe
         # StorageError types defined here.
+        from .chemistry_repositories import (
+            AliasRepository,
+            CompoundRepository,
+            IdentityResolutionRepository,
+            MolecularStateRepository,
+        )
         from .repositories import (
             AuditRepository,
             ImportBatchRepository,
@@ -124,11 +140,19 @@ class UnitOfWork:
         self.import_batches = ImportBatchRepository(session)
         self.source_artifacts = SourceArtifactRepository(session)
         self.audit_events = AuditRepository(session)
+        self.compounds = CompoundRepository(session)
+        self.molecular_states = MolecularStateRepository(session)
+        self.aliases = AliasRepository(session)
+        self.identity_resolutions = IdentityResolutionRepository(session)
         self._repositories = (
             self.projects,
             self.import_batches,
             self.source_artifacts,
             self.audit_events,
+            self.compounds,
+            self.molecular_states,
+            self.aliases,
+            self.identity_resolutions,
         )
 
     def __exit__(
