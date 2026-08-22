@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-11-pose-consensus`
-- Base integrada: `feat/phase-10-analytics-engine`
-- Última fase concluída: **Fase 11 — Pose Consensus**
-- Etapa ativa: nenhuma; Fase 11 concluída com sucesso.
-- Próxima ação exata: iniciar a Fase 12 — Interaction Consensus.
+- Branch de execução: `feat/phase-12-interaction-consensus`
+- Base integrada: `feat/phase-11-pose-consensus`
+- Última fase concluída: **Fase 12 — Interaction Consensus**
+- Etapa ativa: nenhuma; Fase 12 concluída com sucesso.
+- Próxima ação exata: iniciar a Fase 13 — Decision Engine.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -28,9 +28,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 9 — MolDynStudio + GROMACS | Concluída | MDRunRecord, MDMetricRecord, GROMACS multi-series XVG parser com extração de estatísticas resumo, GromacsAdapter, MolDynStudioAdapter, 541 testes passando com 88,68% de branch coverage. |
 | 10 — Analytics Engine | Concluída | Score consensus (mediana/média ponderada/dispersão), correlações Spearman/Kendall e top-k overlap, MoleculeAgreement (HIGH/MOD/LOW), Pareto multi-objetivo não-dominado, 549 testes passando com 88,97% de branch coverage. |
 | 11 — Pose Consensus | Concluída | RMSD simetria-corrigido em `ChemistryService`, matriz de RMSD 3D, clustering Butina com extração exata de medóide, cálculo de estabilidade e concordância estrutural, 556 testes passando com 88,90% de branch coverage. |
-| 12 — Interaction Consensus | Pendente | Próxima fase; iniciar especificação e implementação. |
+| 12 — Interaction Consensus | Concluída | InteractionPrevalence, matriz resíduo/tipo, perfis de interação por família de poses, conservação de interações-chave em denominadores de poses reais, 559 testes passando com 89,03% de branch coverage. |
+| 13 — Decision Engine | Pendente | Próxima fase; iniciar especificação e implementação. |
 
-| 13 — Decision Engine | Pendente | Aguardar gate Terra da Fase 12. |
 
 
 | 14 — GUI completa | Pendente | Aguardar gate Terra da Fase 13. |

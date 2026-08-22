@@ -51,6 +51,11 @@ All notable changes to FideliChem will be documented in this file.
 - Pairwise 3D pose RMSD matrix generation across multi-conformer and docking solution sets.
 - Butina-based structural pose clustering (`cluster_poses`) with exact centroid medoid determination minimizing intra-cluster RMSD distance.
 - Structural pose consensus evaluation (`compute_pose_consensus`) determining dominant binding mode families, stability scores, and agreement levels.
+- Interaction prevalence analytics (`InteractionPrevalence`) quantifying contact frequencies, mean/min distances, and angles across conformers with zero-contact denominator preservation.
+- Residue-by-interaction-type cross-tabulation matrix generation across campaign candidates.
+- Pose family interaction profiling (`PoseFamilyInteractionProfile`) characterizing conserved vs cluster-specific binding interactions.
+- Core interaction conservation analysis (`compute_interaction_consensus`) identifying critical active-site anchoring contacts.
+
 
 
 
