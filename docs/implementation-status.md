@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-14-gui-completa`
-- Base integrada: `feat/phase-13-decision-engine`
-- Última fase concluída: **Fase 14 — GUI Completa**
-- Etapa ativa: nenhuma; Fase 14 concluída com sucesso.
-- Próxima ação exata: iniciar a Fase 15 — Export + Reproducibility.
+- Branch de execução: `feat/phase-15-export-reproducibility`
+- Base integrada: `feat/phase-14-gui-completa`
+- Última fase concluída: **Fase 15 — Export + Reproducibility**
+- Etapa ativa: nenhuma; Fase 15 concluída com sucesso.
+- Próxima ação exata: iniciar a Fase 16 — Packaging e Release.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -31,9 +31,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 12 — Interaction Consensus | Concluída | InteractionPrevalence, matriz resíduo/tipo, perfis de interação por família de poses, conservação de interações-chave em denominadores de poses reais, 559 testes passando com 89,03% de branch coverage. |
 | 13 — Decision Engine | Concluída | DecisionProfile versionado, critérios tipados (exclusion/mandatory/rank/warning), motor determinístico de justificativas e recomendações de próxima evidência, 563 testes passando com 88,93% de branch coverage. |
 | 14 — GUI completa | Concluída | PySide6 MainWindow com sidebar e stacked views (Project, Import, Compounds 3-pane, Docking, Interactions, Dynamics, Decision, QC, Exports), 573 testes passando com 89,04% de branch coverage. |
-| 15 — Export + reproducibility | Pendente | Próxima fase; iniciar especificação e implementação. |
+| 15 — Export + reproducibility | Concluída | ExportEngine, exportadores tabulares multi-formato (CSV, JSON, XLSX, Parquet), Methods Report em Markdown e manifestos criptográficos SHA-256 (`manifest.json`), 577 testes passando com 88,70% de branch coverage. |
+| 16 — Packaging e release | Pendente | Próxima fase final; iniciar especificação e release pipeline. |
 
-| 16 — Packaging e release | Pendente | Aguardar gate Terra da Fase 15. |
 
 ## Último gate verificado
 

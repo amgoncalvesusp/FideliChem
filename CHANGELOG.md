@@ -64,6 +64,10 @@ All notable changes to FideliChem will be documented in this file.
 - Evidence import preview view (`ImportView`) offering adapter probing, pre-persistence summary reviews, and background execution.
 - 3-pane Compound Explorer (`CompoundsView`) featuring search, molecule table, identity inspection, and multi-tier evidence tabs (Chemistry, Docking, Poses, Interactions, MD, Provenance).
 - Specialized analytical views for Docking (`DockingView`), Intermolecular Interactions (`InteractionsView`), Molecular Dynamics (`DynamicsView`), Decision Triage (`DecisionView`), Quality Control diagnostics (`QCView`), and Data Exports (`ExportsView`).
+- Audited multi-format export engine (`ExportEngine`) with support for CSV, JSON, Excel (native and XML spreadsheet fallback), and Parquet formats.
+- Cryptographic provenance and audit manifest generation (`manifest.json`) verifying SHA-256 digests and file sizes for all generated artifacts.
+- Computational Methods and Reproducibility report generator (`generate_methods_report`) documenting parameterization, normalization schemes, consensus cutoffs, and decision policies.
+
 
 
 
