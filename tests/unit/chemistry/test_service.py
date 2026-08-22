@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -308,6 +309,65 @@ def test_nested_rdkit_log_blocks_are_scoped(
             assert exits == 0
         assert exits == 1
     assert exits == 2
+
+
+def test_rdkit_log_suppression_regions_do_not_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import fidelichem.chemistry.service as service_module
+
+    first_entered = threading.Event()
+    second_attempted = threading.Event()
+    second_entered = threading.Event()
+    release_first = threading.Event()
+    overlap = False
+    sentinels: list[str] = []
+    active = 0
+    state_lock = threading.Lock()
+
+    class Blocker:
+        def __enter__(self) -> None:
+            nonlocal active, overlap
+            with state_lock:
+                active += 1
+                overlap = overlap or active > 1
+                if active > 1:
+                    sentinels.append("log re-enabled during another region")
+
+        def __exit__(self, *_args: object) -> None:
+            nonlocal active
+            with state_lock:
+                active -= 1
+
+    def first_worker() -> None:
+        with service_module._quiet_rdkit():
+            first_entered.set()
+            assert release_first.wait(timeout=2)
+
+    def second_worker() -> None:
+        assert first_entered.wait(timeout=2)
+        second_attempted.set()
+        with service_module._quiet_rdkit():
+            second_entered.set()
+
+    monkeypatch.setattr(service_module.rdBase, "BlockLogs", Blocker)
+    first = threading.Thread(target=first_worker)
+    second = threading.Thread(target=second_worker)
+    first.start()
+    second.start()
+    assert second_attempted.wait(timeout=2)
+    try:
+        assert not service_module._rdkit_log_lock.acquire(blocking=False)
+        assert not second_entered.is_set()
+    finally:
+        release_first.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+    assert second_entered.is_set()
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert not overlap
+    assert sentinels == []
 
 
 def test_parent_policy_mismatch_is_safe_error(

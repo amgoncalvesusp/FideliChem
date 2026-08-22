@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from importlib import import_module
+from threading import RLock
 from typing import Any, cast
 
 from fidelichem.domain.chemistry import (
@@ -45,11 +46,12 @@ rdMolDescriptors = import_module("rdkit.Chem.rdMolDescriptors")
 _EXPECTED_RDKIT_VERSION = (2026, 3, 4)
 _MAX_SOURCE_CODEPOINTS = 10_000
 _MAX_ATOMS = 2_000
+_rdkit_log_lock = RLock()
 
 
 @contextmanager
 def _quiet_rdkit() -> Iterator[None]:
-    with rdBase.BlockLogs():
+    with _rdkit_log_lock, rdBase.BlockLogs():
         yield
 
 
