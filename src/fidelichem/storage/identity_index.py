@@ -69,11 +69,10 @@ class PersistentIdentityIndex:
         self, state_hash: str
     ) -> tuple[ResolutionCandidate, ...]:
         def query(session: Session) -> tuple[ResolutionCandidate, ...]:
-            active = _active_state_exists(_MolecularStateRow.id)
             statement = (
-                select(_CompoundRow, _MolecularStateRow, active.label("active"))
-                .join(
-                    _MolecularStateRow,
+                select(_MolecularStateRow, _CompoundRow)
+                .outerjoin(
+                    _CompoundRow,
                     _MolecularStateRow.compound_id == _CompoundRow.id,
                 )
                 .where(_MolecularStateRow.state_hash == state_hash)
@@ -82,8 +81,12 @@ class PersistentIdentityIndex:
             return _safe_read(
                 "molecular state",
                 lambda: tuple(
-                    _state_candidate(compound, state, bool(is_active))
-                    for compound, state, is_active in session.execute(statement)
+                    _state_candidate(
+                        compound,
+                        state,
+                        _catalog_state_active(session, state.id),
+                    )
+                    for state, compound in session.execute(statement)
                 ),
             )
 
@@ -93,17 +96,19 @@ class PersistentIdentityIndex:
         self, parent_hash: str
     ) -> tuple[ResolutionCandidate, ...]:
         def query(session: Session) -> tuple[ResolutionCandidate, ...]:
-            active = _active_compound_exists(_CompoundRow.id)
             statement = (
-                select(_CompoundRow, active.label("active"))
+                select(_CompoundRow)
                 .where(_CompoundRow.structure_hash == parent_hash)
                 .order_by(_CompoundRow.id)
             )
             return _safe_read(
                 "compound",
                 lambda: tuple(
-                    _compound_candidate(compound, bool(is_active))
-                    for compound, is_active in session.execute(statement)
+                    _compound_candidate(
+                        compound,
+                        _catalog_compound_active(session, compound.id),
+                    )
+                    for (compound,) in session.execute(statement)
                 ),
             )
 
@@ -113,17 +118,15 @@ class PersistentIdentityIndex:
         self, inchikey: str
     ) -> tuple[ResolutionCandidate, ...]:
         def query(session: Session) -> tuple[ResolutionCandidate, ...]:
-            compound_active = _active_compound_exists(_CompoundRow.id)
             compound_statement = (
-                select(_CompoundRow, compound_active.label("active"))
+                select(_CompoundRow)
                 .where(_CompoundRow.inchikey == inchikey)
                 .order_by(_CompoundRow.id)
             )
-            state_active = _active_state_exists(_MolecularStateRow.id)
             state_statement = (
-                select(_CompoundRow, _MolecularStateRow, state_active.label("active"))
-                .join(
-                    _MolecularStateRow,
+                select(_MolecularStateRow, _CompoundRow)
+                .outerjoin(
+                    _CompoundRow,
                     _MolecularStateRow.compound_id == _CompoundRow.id,
                 )
                 .where(_MolecularStateRow.state_inchikey == inchikey)
@@ -207,18 +210,20 @@ def _inchi_candidates(
 ) -> tuple[ResolutionCandidate, ...]:
     candidates = [
         _compound_candidate(
-            compound, bool(is_active), evidence=EvidenceKind.CATALOG_INCHI
+            compound,
+            _catalog_compound_active(session, compound.id),
+            evidence=EvidenceKind.CATALOG_INCHI,
         )
-        for compound, is_active in session.execute(compound_statement)
+        for (compound,) in session.execute(compound_statement)
     ]
     candidates.extend(
         _state_candidate(
             compound,
             state,
-            bool(is_active),
+            _catalog_state_active(session, state.id),
             evidence=EvidenceKind.CATALOG_INCHI,
         )
-        for compound, state, is_active in session.execute(state_statement)
+        for state, compound in session.execute(state_statement)
     )
     return tuple(sorted(candidates, key=lambda item: item.sort_key))
 
@@ -227,41 +232,77 @@ def _active_batch_clause() -> Any:
     return _ImportBatchRow.status != "rolled_back"
 
 
-def _active_resolution_conditions(resolution_id: Any) -> tuple[Any, ...]:
-    successor = _IdentityResolutionRow.__table__.alias("active_successor")
-    return (
-        _IdentityResolutionRow.decision != "retracted",
-        _IdentityResolutionRow.compound_id.is_not(None),
-        ~exists(
-            select(successor.c.id).where(successor.c.supersedes_id == resolution_id)
-        ),
-    )
-
-
-def _active_state_exists(state_id: Any) -> Any:
-    return exists(
-        select(_IdentityResolutionRow.id)
+def _catalog_state_active(session: Session, state_id: str) -> bool:
+    statement = (
+        select(_IdentityResolutionRow, _ImportBatchRow)
         .join(_AliasRow, _AliasRow.id == _IdentityResolutionRow.alias_id)
         .join(_ImportBatchRow, _ImportBatchRow.id == _AliasRow.import_batch_id)
-        .where(
-            _IdentityResolutionRow.molecular_state_id == state_id,
-            *_active_resolution_conditions(_IdentityResolutionRow.id),
-            _active_batch_clause(),
-        )
+        .where(_IdentityResolutionRow.molecular_state_id == state_id)
     )
+    return _catalog_target_active(session, statement)
 
 
-def _active_compound_exists(compound_id: Any) -> Any:
-    return exists(
-        select(_IdentityResolutionRow.id)
+def _catalog_compound_active(session: Session, compound_id: str) -> bool:
+    statement = (
+        select(_IdentityResolutionRow, _ImportBatchRow)
         .join(_AliasRow, _AliasRow.id == _IdentityResolutionRow.alias_id)
         .join(_ImportBatchRow, _ImportBatchRow.id == _AliasRow.import_batch_id)
-        .where(
-            _IdentityResolutionRow.compound_id == compound_id,
-            *_active_resolution_conditions(_IdentityResolutionRow.id),
-            _active_batch_clause(),
-        )
+        .where(_IdentityResolutionRow.compound_id == compound_id)
     )
+    return _catalog_target_active(session, statement)
+
+
+def _catalog_target_active(session: Session, statement: Any) -> bool:
+    contributors = tuple(session.execute(statement))
+    active = False
+    for resolution, batch in contributors:
+        resolution_value = _validate_resolution_row(session, resolution)
+        successors = _successors(session, resolution.id)
+        if successors:
+            active_successor = True
+            for successor in successors:
+                _validate_resolution_row(session, successor)
+        else:
+            active_successor = False
+        if batch.status not in {"in_progress", "completed", "failed", "rolled_back"}:
+            raise CorruptStoredDataError("stored identity resolution data is invalid")
+        if (
+            resolution_value.decision is not IdentityDecision.RETRACTED
+            and resolution_value.compound_id is not None
+            and batch.status in {"in_progress", "completed", "failed"}
+            and not active_successor
+        ):
+            active = True
+    return active
+
+
+def _successors(
+    session: Session, resolution_id: str
+) -> tuple[_IdentityResolutionRow, ...]:
+    statement = select(_IdentityResolutionRow).where(
+        _IdentityResolutionRow.supersedes_id == resolution_id
+    )
+    return tuple(row for (row,) in session.execute(statement))
+
+
+def _validate_resolution_row(
+    session: Session, row: _IdentityResolutionRow
+) -> IdentityResolution:
+    resolution = _resolution_model(row)
+    compound = None
+    if resolution.compound_id is not None:
+        compound_row = session.get(_CompoundRow, resolution.compound_id)
+        if compound_row is None:
+            raise CorruptStoredDataError("stored identity resolution data is invalid")
+        compound = _compound_model(compound_row)
+    if resolution.molecular_state_id is not None:
+        state_row = session.get(_MolecularStateRow, resolution.molecular_state_id)
+        if state_row is None:
+            raise CorruptStoredDataError("stored identity resolution data is invalid")
+        state = _state_model(state_row)
+        if compound is None or state.compound_id != compound.id:
+            raise CorruptStoredDataError("stored identity resolution data is invalid")
+    return resolution
 
 
 def _compound_candidate(
@@ -282,12 +323,14 @@ def _compound_candidate(
 
 
 def _state_candidate(
-    compound: _CompoundRow,
+    compound: _CompoundRow | None,
     state: _MolecularStateRow,
     active: bool,
     *,
     evidence: EvidenceKind = EvidenceKind.CATALOG_STATE,
 ) -> ResolutionCandidate:
+    if compound is None:
+        raise CorruptStoredDataError("stored molecular state data is invalid")
     compound_value = _compound_model(compound)
     state_value = _state_model(state)
     if state_value.compound_id != compound_value.id:
