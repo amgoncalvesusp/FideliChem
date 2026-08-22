@@ -656,7 +656,7 @@ def test_resolution_transition_guards_reject_repeated_retract_and_wrong_predeces
             {"id": RETRACT, "alias": ALIAS, "previous": ROOT, "at": STAMP},
         )
         before = connection.scalar(text("SELECT count(*) FROM identity_resolution"))
-        for decision in ("retracted", "reassigned"):
+        for decision, compound in (("retracted", None), ("reassigned", COMPOUND)):
             with pytest.raises((IntegrityError, OperationalError)) as caught:
                 connection.execute(
                     text(
@@ -668,7 +668,7 @@ def test_resolution_transition_guards_reject_repeated_retract_and_wrong_predeces
                         "id": RACE_A if decision == "retracted" else RACE_B,
                         "alias": ALIAS,
                         "decision": decision,
-                        "compound": COMPOUND,
+                        "compound": compound,
                         "previous": RETRACT,
                         "at": STAMP,
                     },
@@ -1068,13 +1068,27 @@ def test_alias_natural_key_and_resolution_graph_constraints(
             ),
             {"id": ROOT, "alias": ALIAS, "compound": COMPOUND, "at": STAMP},
         )
-        with pytest.raises((IntegrityError, OperationalError)):
+        with pytest.raises((IntegrityError, OperationalError)) as caught:
             connection.execute(
                 text(
                     "INSERT INTO identity_resolution (id,alias_id,decision,compound_id,decided_at,actor_kind) VALUES (:id,:alias,'confirmed',:compound,:at,'system')"
                 ),
-                {"id": NEXT, "alias": ALIAS, "compound": COMPOUND_2, "at": STAMP},
+                {"id": NEXT, "alias": ALIAS, "compound": COMPOUND, "at": STAMP},
             )
+        assert "UNIQUE constraint failed: identity_resolution.alias_id" in str(
+            caught.value
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM identity_resolution "
+                    "WHERE alias_id=:alias AND supersedes_id IS NULL"
+                ),
+                {"alias": ALIAS},
+            )
+            == 1
+        )
+        assert connection.scalar(text("SELECT count(*) FROM identity_resolution")) == 1
 
 
 def test_identity_tables_are_append_only_and_fk_restrictive(
