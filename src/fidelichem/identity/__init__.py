@@ -9,6 +9,7 @@ from .models import (
     ResolutionReason,
     ResolutionReport,
 )
+from .resolver import IdentityResolver
 
 __all__ = [
     "CatalogAction",
@@ -18,4 +19,5 @@ __all__ = [
     "ResolutionKind",
     "ResolutionReason",
     "ResolutionReport",
+    "IdentityResolver",
 ]

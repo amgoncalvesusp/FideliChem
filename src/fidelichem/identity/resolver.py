@@ -1,0 +1,244 @@
+"""Pure, read-only identity evidence resolution."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+
+from fidelichem.domain.chemistry import CanonicalizationResult, IdentityClaim
+
+from .models import (
+    CatalogAction,
+    EvidenceKind,
+    IdentityIndex,
+    ResolutionCandidate,
+    ResolutionKind,
+    ResolutionReason,
+    ResolutionReport,
+)
+
+
+def _candidate_key(
+    candidate: ResolutionCandidate,
+) -> tuple[str, str | None, str | None]:
+    return (
+        candidate.compound_id,
+        candidate.molecular_state_id,
+        candidate.resolution_id,
+    )
+
+
+def _merge_candidates(
+    groups: Iterable[Iterable[ResolutionCandidate]],
+) -> tuple[ResolutionCandidate, ...]:
+    merged: dict[
+        tuple[str, str | None, str | None], tuple[set[EvidenceKind], bool]
+    ] = {}
+    for group in groups:
+        for candidate in group:
+            key = _candidate_key(candidate)
+            evidence, dormant = merged.setdefault(key, (set(), False))
+            evidence.update(candidate.evidence)
+            merged[key] = (evidence, dormant or candidate.catalog_dormant)
+    return tuple(
+        ResolutionCandidate(
+            compound_id=compound_id,
+            molecular_state_id=state_id,
+            resolution_id=resolution_id,
+            evidence=tuple(evidence),
+            catalog_dormant=dormant,
+        )
+        for (compound_id, state_id, resolution_id), (evidence, dormant) in (
+            merged.items()
+        )
+    )
+
+
+def _distinct_targets(
+    candidates: Iterable[ResolutionCandidate],
+) -> set[tuple[str, str | None]]:
+    return {
+        (candidate.compound_id, candidate.molecular_state_id)
+        for candidate in candidates
+    }
+
+
+def _report(
+    kind: ResolutionKind,
+    reason: ResolutionReason,
+    candidates: Iterable[ResolutionCandidate] = (),
+    *,
+    dormant: bool = False,
+) -> ResolutionReport:
+    action = {
+        ResolutionKind.EXACT_STATE: CatalogAction.REUSE_STATE,
+        ResolutionKind.NEW_STATE: CatalogAction.REUSE_COMPOUND,
+        ResolutionKind.NEW_COMPOUND: CatalogAction.CREATE_COMPOUND,
+        ResolutionKind.ALIAS_ONLY: CatalogAction.NONE,
+        ResolutionKind.AMBIGUOUS: CatalogAction.NONE,
+        ResolutionKind.CONFLICT: CatalogAction.NONE,
+        ResolutionKind.UNRESOLVED: CatalogAction.NONE,
+    }[kind]
+    return ResolutionReport(
+        kind=kind,
+        reason=reason,
+        candidates=tuple(candidates),
+        catalog_action=action,
+        catalog_match_dormant=dormant,
+    )
+
+
+class IdentityResolver:
+    """Resolve immutable chemistry and alias evidence without side effects."""
+
+    def resolve(
+        self,
+        result: CanonicalizationResult | None,
+        claim: IdentityClaim,
+        index: IdentityIndex,
+    ) -> ResolutionReport:
+        aliases = self._alias_candidates(claim, index)
+        if result is None:
+            if claim.smiles is not None:
+                raise ValueError(
+                    "canonicalization result is required for a SMILES claim"
+                )
+            if aliases:
+                if len(_distinct_targets(aliases)) == 1:
+                    return _report(
+                        ResolutionKind.ALIAS_ONLY,
+                        ResolutionReason.ALIAS_ONLY,
+                        aliases,
+                    )
+                return _report(
+                    ResolutionKind.AMBIGUOUS,
+                    ResolutionReason.AMBIGUOUS_ALIAS,
+                    aliases,
+                )
+            inchi_candidates = self._inchi_candidates(claim.inchikey, index)
+            return _report(
+                ResolutionKind.UNRESOLVED,
+                ResolutionReason.UNRESOLVED,
+                inchi_candidates,
+            )
+
+        if claim.smiles is not None and result.source_smiles != claim.smiles:
+            raise ValueError("canonicalization source does not match the claim")
+        generated_state_key = result.molecular_state.state_inchikey
+        if (
+            claim.inchikey is not None
+            and generated_state_key is not None
+            and claim.inchikey != generated_state_key
+        ):
+            return _report(
+                ResolutionKind.CONFLICT,
+                ResolutionReason.CONFLICTING_EVIDENCE,
+                aliases,
+            )
+
+        state_candidates = index.catalog_by_state_hash(
+            result.molecular_state.state_hash
+        )
+        parent_candidates = index.catalog_by_parent_hash(
+            result.compound.structure_hash
+        )
+        inchi_candidates = self._inchi_candidates_for_result(result, claim, index)
+        structural = _merge_candidates((state_candidates, parent_candidates))
+        all_candidates = _merge_candidates(
+            (state_candidates, parent_candidates, inchi_candidates, aliases)
+        )
+        if aliases and self._alias_conflicts(aliases, structural):
+            return _report(
+                ResolutionKind.CONFLICT,
+                ResolutionReason.CONFLICTING_EVIDENCE,
+                all_candidates,
+            )
+
+        state_targets = _distinct_targets(state_candidates)
+        if len(state_targets) > 1:
+            return _report(
+                ResolutionKind.AMBIGUOUS,
+                ResolutionReason.AMBIGUOUS_ALIAS,
+                all_candidates,
+            )
+        if state_targets:
+            return _report(
+                ResolutionKind.EXACT_STATE,
+                ResolutionReason.EXACT_STATE,
+                all_candidates,
+                dormant=all(
+                    candidate.catalog_dormant for candidate in state_candidates
+                ),
+            )
+
+        parent_targets = {candidate.compound_id for candidate in parent_candidates}
+        if len(parent_targets) > 1:
+            return _report(
+                ResolutionKind.AMBIGUOUS,
+                ResolutionReason.AMBIGUOUS_ALIAS,
+                all_candidates,
+            )
+        if parent_targets:
+            return _report(
+                ResolutionKind.NEW_STATE,
+                ResolutionReason.PARENT_MATCH,
+                all_candidates,
+                dormant=all(
+                    candidate.catalog_dormant for candidate in parent_candidates
+                ),
+            )
+        return _report(
+            ResolutionKind.NEW_COMPOUND,
+            ResolutionReason.NEW_COMPOUND,
+            all_candidates,
+        )
+
+    @staticmethod
+    def _alias_candidates(
+        claim: IdentityClaim, index: IdentityIndex
+    ) -> tuple[ResolutionCandidate, ...]:
+        if claim.source_system is None or claim.source_value is None:
+            return ()
+        return index.active_by_alias(claim.source_system, claim.source_value)
+
+    @staticmethod
+    def _inchi_candidates(
+        inchikey: str | None, index: IdentityIndex
+    ) -> tuple[ResolutionCandidate, ...]:
+        if inchikey is None:
+            return ()
+        return index.catalog_by_generated_inchikey(inchikey)
+
+    @classmethod
+    def _inchi_candidates_for_result(
+        cls,
+        result: CanonicalizationResult,
+        claim: IdentityClaim,
+        index: IdentityIndex,
+    ) -> tuple[ResolutionCandidate, ...]:
+        keys = {
+            key
+            for key in (
+                result.molecular_state.state_inchikey,
+                result.compound.inchikey,
+                claim.inchikey,
+            )
+            if key is not None
+        }
+        return _merge_candidates(
+            cls._inchi_candidates(key, index) for key in sorted(keys)
+        )
+
+    @staticmethod
+    def _alias_conflicts(
+        aliases: Iterable[ResolutionCandidate],
+        structural: Iterable[ResolutionCandidate],
+    ) -> bool:
+        structural_compounds = {candidate.compound_id for candidate in structural}
+        if not structural_compounds:
+            return True
+        return any(
+            alias.compound_id not in structural_compounds for alias in aliases
+        )
+
+
+__all__ = ["IdentityResolver"]
