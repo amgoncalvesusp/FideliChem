@@ -49,6 +49,22 @@ class ChemistryError(DomainError):
         return self.public_message
 
 
+class IdentityError(DomainError):
+    """Base class for safe, stable identity diagnostics."""
+
+    default_code = "IDENTITY_ERROR"
+    code = default_code
+    public_message = "identity operation failed"
+
+    def __init__(self) -> None:
+        self.diagnostic_code = self.code
+        super().__init__(self.public_message)
+
+    @property
+    def message(self) -> str:
+        return self.public_message
+
+
 class InvalidStructureError(ChemistryError):
     """A supplied structure cannot be represented safely."""
 
@@ -89,20 +105,15 @@ class ParentPolicyMismatchError(ChemistryError):
     public_message = "structure parent policy could not be applied"
 
 
-class AliasConflictError(ChemistryError):
+class AliasConflictError(IdentityError):
     """A source alias conflicts with an existing identity record."""
 
     code = "IDENTITY_ALIAS_CONFLICT"
     public_message = "identity alias conflicts with an existing record"
 
 
-class IdentityResolutionConflictError(ChemistryError):
+class IdentityResolutionConflictError(IdentityError):
     """An append-only identity decision chain has a concurrent conflict."""
 
     code = "IDENTITY_RESOLUTION_CONFLICT"
     public_message = "identity resolution conflicts with the existing chain"
-
-
-NoOrganicStructureError = NoOrganicParentStructureError
-NoOrganicParentError = NoOrganicParentStructureError
-FragmentParentPolicyError = ParentPolicyMismatchError

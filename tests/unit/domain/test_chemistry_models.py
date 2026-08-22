@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+import fidelichem.domain as public_domain
 from fidelichem.domain.chemistry import (
     Alias,
     CanonicalizationResult,
@@ -20,6 +21,8 @@ from fidelichem.domain.chemistry import (
 from fidelichem.domain.errors import (
     AliasConflictError,
     AmbiguousParentStructureError,
+    ChemistryError,
+    IdentityError,
     IdentityResolutionConflictError,
     InvalidStructureError,
     NoOrganicParentStructureError,
@@ -412,3 +415,23 @@ def test_public_domain_errors_reject_message_and_code_overrides(
 ) -> None:
     with pytest.raises(TypeError):
         error_type("raw SMILES", code="SELECT * FROM secret")  # type: ignore[call-arg]
+
+
+def test_identity_conflicts_are_not_chemistry_errors_and_aliases_are_private() -> None:
+    assert issubclass(AliasConflictError, IdentityError)
+    assert issubclass(IdentityResolutionConflictError, IdentityError)
+    assert not issubclass(AliasConflictError, ChemistryError)
+    assert not issubclass(IdentityResolutionConflictError, ChemistryError)
+
+    with pytest.raises(IdentityError):
+        raise AliasConflictError()
+    try:
+        raise IdentityResolutionConflictError()
+    except ChemistryError:
+        pytest.fail("identity conflicts must not be caught as chemistry errors")
+    except IdentityError:
+        pass
+
+    assert not hasattr(public_domain, "NoOrganicParentError")
+    assert not hasattr(public_domain, "NoOrganicStructureError")
+    assert not hasattr(public_domain, "FragmentParentPolicyError")
