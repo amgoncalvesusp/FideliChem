@@ -120,6 +120,33 @@ class FakeIndex:
         return self.aliases.get((source_system, source_value), ())
 
 
+@dataclass(frozen=True)
+class SpyIndex(FakeIndex):
+    calls: list[tuple[str, str]] = field(default_factory=list)
+
+    def catalog_by_state_hash(self, state_hash: str) -> tuple[ResolutionCandidate, ...]:
+        self.calls.append(("state", state_hash))
+        return super().catalog_by_state_hash(state_hash)
+
+    def catalog_by_parent_hash(
+        self, parent_hash: str
+    ) -> tuple[ResolutionCandidate, ...]:
+        self.calls.append(("parent", parent_hash))
+        return super().catalog_by_parent_hash(parent_hash)
+
+    def catalog_by_generated_inchikey(
+        self, inchikey: str
+    ) -> tuple[ResolutionCandidate, ...]:
+        self.calls.append(("inchi", inchikey))
+        return super().catalog_by_generated_inchikey(inchikey)
+
+    def active_by_alias(
+        self, source_system: str, source_value: str
+    ) -> tuple[ResolutionCandidate, ...]:
+        self.calls.append(("alias", source_system + ":" + source_value))
+        return super().active_by_alias(source_system, source_value)
+
+
 def _candidate(
     compound_id: str = COMPOUND_A,
     state_id: str | None = STATE_A,
@@ -217,6 +244,28 @@ def test_external_inchi_only_claim_remains_unresolved_but_keeps_evidence() -> No
     assert report.candidates[0].evidence == (EvidenceKind.CATALOG_INCHI,)
 
 
+def test_result_none_keeps_alias_and_supplied_inchi_weak_evidence() -> None:
+    alias = _candidate(COMPOUND_A, None, evidence=(EvidenceKind.ACTIVE_ALIAS,))
+    external = _candidate(
+        COMPOUND_B,
+        None,
+        evidence=(EvidenceKind.CATALOG_INCHI,),
+    )
+    report = IdentityResolver().resolve(
+        None,
+        _claim(smiles=None, inchikey=INCHI_B, source_system="gold", source_value="x"),
+        FakeIndex(
+            aliases={("gold", "x"): (alias,)},
+            inchis={INCHI_B: (external,)},
+        ),
+    )
+    assert report.kind is ResolutionKind.ALIAS_ONLY
+    assert {candidate.compound_id for candidate in report.candidates} == {
+        COMPOUND_A,
+        COMPOUND_B,
+    }
+
+
 def test_multiple_alias_targets_are_ambiguous() -> None:
     aliases = (
         _candidate(COMPOUND_A, None, evidence=(EvidenceKind.ACTIVE_ALIAS,)),
@@ -271,6 +320,74 @@ def test_structural_and_alias_targets_disagree_as_conflict() -> None:
     assert report.reason is ResolutionReason.CONFLICTING_EVIDENCE
 
 
+def test_exact_state_and_alias_sibling_state_conflict_even_for_same_compound() -> None:
+    report = IdentityResolver().resolve(
+        _result(),
+        _claim(source_system="gold", source_value="sibling"),
+        FakeIndex(
+            states={"a" * 64: (_candidate(COMPOUND_A, STATE_A),)},
+            aliases={
+                ("gold", "sibling"): (
+                    _candidate(
+                        COMPOUND_A,
+                        STATE_B,
+                        evidence=(EvidenceKind.ACTIVE_ALIAS,),
+                    ),
+                )
+            },
+        ),
+    )
+    assert report.kind is ResolutionKind.CONFLICT
+
+
+def test_new_state_and_alias_sibling_state_conflict_under_same_parent() -> None:
+    report = IdentityResolver().resolve(
+        _result(state_hash="f" * 64),
+        _claim(source_system="gold", source_value="sibling-parent"),
+        FakeIndex(
+            parents={"b" * 64: (_candidate(COMPOUND_A, None),)},
+            aliases={
+                ("gold", "sibling-parent"): (
+                    _candidate(
+                        COMPOUND_A,
+                        STATE_B,
+                        evidence=(EvidenceKind.ACTIVE_ALIAS,),
+                    ),
+                )
+            },
+        ),
+    )
+    assert report.kind is ResolutionKind.CONFLICT
+
+
+def test_invalid_claim_or_result_is_rejected_before_index_access() -> None:
+    index = SpyIndex()
+    with pytest.raises(TypeError):
+        IdentityResolver().resolve(None, object(), index)  # type: ignore[arg-type]
+    assert index.calls == []
+    with pytest.raises(TypeError):
+        IdentityResolver().resolve(object(), _claim(), index)  # type: ignore[arg-type]
+    assert index.calls == []
+    malformed = CanonicalizationResult.model_construct(source_smiles="CCO")
+    with pytest.raises(ValueError):
+        IdentityResolver().resolve(malformed, _claim(), index)
+    assert index.calls == []
+
+
+def test_all_evidence_surfaces_are_queried_and_deduplicated() -> None:
+    index = SpyIndex()
+    IdentityResolver().resolve(
+        _result(),
+        _claim(inchikey=INCHI_B, source_system="gold", source_value="all"),
+        index,
+    )
+    assert ("alias", "gold:all") in index.calls
+    assert ("state", "a" * 64) in index.calls
+    assert ("parent", "b" * 64) in index.calls
+    assert ("inchi", INCHI_A) in index.calls
+    assert ("inchi", INCHI_B) in index.calls
+
+
 def test_inchi_candidates_are_evidence_only_and_deterministic() -> None:
     candidates = (
         _candidate(COMPOUND_B, None, evidence=(EvidenceKind.CATALOG_INCHI,)),
@@ -320,10 +437,26 @@ def test_static_resolver_is_pure_and_has_no_write_methods() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom)
     ]
+    imports.extend(
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    )
     assert all(
         "storage" not in module and "sqlalchemy" not in module for module in imports
     )
     assert "sqlalchemy" not in source.lower()
+    assert "rdkit" not in source.lower()
+    mutation_calls = {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr
+        in {"add", "save", "commit", "flush", "write", "delete", "execute"}
+    }
+    assert mutation_calls == set()
     resolver = next(node for node in tree.body if isinstance(node, ast.ClassDef))
     methods = {
         node.name

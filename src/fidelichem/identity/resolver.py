@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from pydantic import ValidationError
+
 from fidelichem.domain.chemistry import CanonicalizationResult, IdentityClaim
 
 from .models import (
@@ -96,44 +98,54 @@ class IdentityResolver:
         claim: IdentityClaim,
         index: IdentityIndex,
     ) -> ResolutionReport:
+        if not isinstance(claim, IdentityClaim):
+            raise TypeError("claim must be an IdentityClaim")
+        if result is not None and not isinstance(result, CanonicalizationResult):
+            raise TypeError("result must be a CanonicalizationResult or None")
+        try:
+            claim = IdentityClaim.model_validate(claim)
+            if result is not None:
+                result = CanonicalizationResult.model_validate(result)
+        except (ValidationError, AttributeError, TypeError, ValueError):
+            raise ValueError("identity evidence is invalid") from None
+        if (
+            result is not None
+            and claim.smiles is not None
+            and result.source_smiles != claim.smiles
+        ):
+            raise ValueError("canonicalization source does not match the claim")
         aliases = self._alias_candidates(claim, index)
+        supplied_inchi = self._inchi_candidates(claim.inchikey, index)
         if result is None:
             if claim.smiles is not None:
                 raise ValueError(
                     "canonicalization result is required for a SMILES claim"
                 )
+            weak_candidates = _merge_candidates((aliases, supplied_inchi))
             if aliases:
                 if len(_distinct_targets(aliases)) == 1:
                     return _report(
                         ResolutionKind.ALIAS_ONLY,
                         ResolutionReason.ALIAS_ONLY,
-                        aliases,
+                        weak_candidates,
                     )
                 return _report(
                     ResolutionKind.AMBIGUOUS,
                     ResolutionReason.AMBIGUOUS_ALIAS,
-                    aliases,
+                    weak_candidates,
                 )
-            inchi_candidates = self._inchi_candidates(claim.inchikey, index)
             return _report(
                 ResolutionKind.UNRESOLVED,
                 ResolutionReason.UNRESOLVED,
-                inchi_candidates,
+                weak_candidates,
             )
 
-        if claim.smiles is not None and result.source_smiles != claim.smiles:
-            raise ValueError("canonicalization source does not match the claim")
         generated_state_key = result.molecular_state.state_inchikey
-        if (
+        external_inchi_conflict = (
             claim.inchikey is not None
             and generated_state_key is not None
             and claim.inchikey != generated_state_key
-        ):
-            return _report(
-                ResolutionKind.CONFLICT,
-                ResolutionReason.CONFLICTING_EVIDENCE,
-                aliases,
-            )
+        )
 
         state_candidates = index.catalog_by_state_hash(
             result.molecular_state.state_hash
@@ -146,6 +158,12 @@ class IdentityResolver:
         all_candidates = _merge_candidates(
             (state_candidates, parent_candidates, inchi_candidates, aliases)
         )
+        if external_inchi_conflict:
+            return _report(
+                ResolutionKind.CONFLICT,
+                ResolutionReason.CONFLICTING_EVIDENCE,
+                all_candidates,
+            )
         if aliases and self._alias_conflicts(aliases, structural):
             return _report(
                 ResolutionKind.CONFLICT,
@@ -233,12 +251,24 @@ class IdentityResolver:
         aliases: Iterable[ResolutionCandidate],
         structural: Iterable[ResolutionCandidate],
     ) -> bool:
-        structural_compounds = {candidate.compound_id for candidate in structural}
-        if not structural_compounds:
+        structural_candidates = tuple(structural)
+        if not structural_candidates:
             return True
-        return any(
-            alias.compound_id not in structural_compounds for alias in aliases
-        )
+        for alias in aliases:
+            if alias.molecular_state_id is None:
+                compatible = any(
+                    alias.compound_id == candidate.compound_id
+                    for candidate in structural_candidates
+                )
+            else:
+                compatible = any(
+                    alias.compound_id == candidate.compound_id
+                    and alias.molecular_state_id == candidate.molecular_state_id
+                    for candidate in structural_candidates
+                )
+            if not compatible:
+                return True
+        return False
 
 
 __all__ = ["IdentityResolver"]
