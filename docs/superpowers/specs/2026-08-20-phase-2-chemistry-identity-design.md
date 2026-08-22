@@ -4,133 +4,223 @@
 
 **Status: queued. Do not implement until the Phase 1 Terra gate is GO.**
 
-This specification narrows Phase 2 of `FideliChem_PLANO_CODEX.md`. Phase 1 is
-the authoritative versioned storage foundation. This phase adds only a new
-Alembic revision after Phase 1 project, lifecycle, provenance, and audit gates
-are complete.
+This specification narrows Phase 2 of FideliChem_PLANO_CODEX.md. Phase 1
+remains the authoritative project, storage, lifecycle, provenance, and audit
+foundation. Phase 2 adds only Alembic revision 0002 after the Phase 1 gate.
 
 ## Goal and scope
 
 Deliver a deterministic, auditable molecular-identity core that normalizes
-SMILES through an isolated RDKit service, distinguishes chemical compound
-families from explicit molecular states, preserves aliases, and reports
-uncertainty rather than silently merging records.
+SMILES through an isolated RDKit service, separates a chemical compound family
+from its explicit molecular states, keeps source aliases reversible, and
+reports ambiguity rather than silently merging records.
 
 Included:
 
-- RDKit dependency and a bounded chemistry service;
-- frozen `Compound`, `MolecularState`, `Alias`, and
-  `IdentityResolution` values;
-- Alembic schema, private ORM rows, and transaction-bound repositories;
-- a pure matching engine and immutable ambiguity reports; and
-- an explicit, reversible and audited resolution service.
+- the exact RDKit runtime and frozen chemistry/identity public values;
+- canonicalization, bounded parentization, InChI evidence, and versioned hashes;
+- append-only identity schema, repositories, and a read-only database index;
+- a pure resolver and immutable ambiguity reports; and
+- one atomic materialize-plus-confirm operation with a batch-correlated audit
+  event, plus append-only reassignment and retraction.
 
-Excluded: adapters, Import Manager, `ImportBundle`, generic-table parsing,
-targets/poses/scores/MD, GUI confirmation, molecule drawing, fingerprints,
-tautomer/protomer enumeration, and any external scientific execution. Future
-adapters preserve raw source data and pass claims to this core; they neither
-import RDKit nor write SQL.
+Excluded: adapters, Import Manager, ImportBundle, parsing tables, targets,
+poses, scores, MD, GUI confirmation, molecule drawing, fingerprints,
+enumeration beyond the bounded canonicalization policy, and external scientific
+execution. Future adapters preserve raw input/provenance and call this core;
+they never import RDKit or write SQL.
 
-## Runtime boundary and safeguards
+## Exact runtime, policy, and module boundary
 
-Add runtime `rdkit>=2026.3.4,<2026.4`; `uv.lock` fixes the exact build. This
-range has CPython 3.12 Windows x64 and Linux x64 wheels, the supported package
-targets. Add `hypothesis>=6.0` only to the development dependency group.
+Add the exact runtime dependency rdkit==2026.3.4. The lockfile contains the
+selected wheels and hashes. Python remains 3.12. Add hypothesis>=6.0 only to
+the development dependency group.
 
-Only `src/fidelichem/chemistry/**` may import `rdkit`. A static repository
-test rejects direct RDKit imports from every other production package. The
-public identity resolver receives frozen values and protocols, never an RDKit
-`Mol`.
+Only files under src/fidelichem/chemistry may import rdkit. A static AST test
+fails if any other production package imports rdkit. The resolver receives
+frozen values and protocols, never RDKit Mol values. Storage stores primitive
+values and does not construct a chemistry object.
 
-Before RDKit parses a SMILES, reject blank input, a NUL byte, more than 10,000
-Unicode code points, and a parsed molecule with more than 2,000 atoms. Convert
-RDKit parsing, sanitization, and InChI failures to typed public errors that do
-not echo the complete untrusted input. The service accepts multiple components
-and never selects a largest fragment or removes a salt from the exact state.
-No input is executed; no shell, network, pickle, `eval`, or secret is used.
+Canonicalization receives an explicit frozen ChemistryPolicy. The only initial
+configured policy is:
 
-## Identity policy
+    policy_id: fidelichem.rdkit-identity.v1
+    state_hash_prefix: fidelichem.molecular-state.v1
+    parent_hash_prefix: fidelichem.compound-parent.v1
+    stereo_signature_prefix: fidelichem.stereochemistry.v1
+    protonation_signature_prefix: fidelichem.protonation.v1
+    tautomer_signature_prefix: fidelichem.tautomer.v1
+    max_tautomers: 128
+    max_transforms: 256
 
-### Exact state
+A change to any transformation, limits, descriptor algorithm, or hash payload
+requires a new policy ID and new state/parent hash prefixes. Existing durable
+rows are never recomputed or overwritten under a new policy.
 
-`MolecularState` is the sanitized exact molecule. Its `state_smiles` comes
-from `Chem.MolToSmiles(exact, canonical=True, isomericSmiles=True)` and
-retains the supplied stereo, charge, tautomer, and disconnected components.
+Persist policy_id, rdkit_version, and nullable inchi_version on both Compound
+and MolecularState. rdkit_version is the actual RDKit runtime version after a
+semantic check that it is 2026.3.4. inchi_version is populated only when the
+installed binding exposes it; otherwise it is null. It is never replaced by an
+empty string.
 
-`state_hash` is SHA-256 over these UTF-8 bytes:
+## Resource, diagnostics, and source safeguards
+
+Before parsing, reject blank input, NUL, more than 10,000 Unicode code points,
+or a sanitized molecule with more than 2,000 atoms. Parser, sanitizer,
+parentization, tautomer-limit, and InChI exceptions map to typed public errors
+containing a stable diagnostic code but no source SMILES, file path, SQL, or
+RDKit diagnostic. RDKit logging is disabled/captured locally during parsing so
+untrusted source text does not reach application logs.
+
+The original validated input is preserved byte-for-character in
+CanonicalizationResult.source_smiles for a future adapter to record in
+provenance. It is not used for database identity and it is not a substitute for
+a SourceArtifact.
+
+## Identity copies and exact state
+
+After successful sanitization, the service makes an identity copy. It sets every
+atom-map number on that copy to zero before *any* canonical serialization,
+signature, InChIKey, formula, mass, or hash calculation. Atom maps and atom
+renumbering are coordinate/import metadata, not chemistry identity. The raw
+source input remains unchanged in CanonicalizationResult.source_smiles.
+
+MolecularState.state_smiles is:
+
+    Chem.MolToSmiles(identity_copy, canonical=True, isomericSmiles=True)
+
+It retains the supplied stereo, charge, tautomer, and disconnected components,
+except atom-map annotations. Its exact state hash is SHA-256 of UTF-8:
 
     fidelichem.molecular-state.v1\0<state-smiles>
 
-The policy version is therefore part of the hash payload. Equality of this hash
-is the sole automatic structural equality in the resolver. A generated full
-InChIKey is preserved as evidence but is not a unique state key.
+Equality of state_hash is the sole automatic structural equality used by the
+resolver.
 
-`formal_charge` is RDKit's net formal charge. Stereo, protonation, and
-tautomer signatures are deterministic, versioned chemistry-service descriptors
-for QC and display only; resolver equality never relies on an individual
-descriptor.
+The state descriptors have exact persisted formats, are versioned, and are for
+QC/display only:
 
-### Compound family
+    stereochemistry_signature =
+      fidelichem.stereochemistry.v1:<sha256(state-smiles)>
 
-`Compound` is a chemical family, not a source filename, pose, or first state
-seen. Derive it from a copy of the exact sanitized molecule through this fixed
-policy pipeline:
+    protonation_signature =
+      fidelichem.protonation.v1:<sha256(
+        "charge=<net-charge>\0<nonstereo-state-smiles>\0<charge-parent-smiles>"
+      )>
 
-    FragmentParent -> ChargeParent -> TautomerParent -> RemoveStereochemistry
+    tautomer_signature =
+      fidelichem.tautomer.v1:<sha256(configured-tautomer-parent-smiles)>
 
-This pipeline is grouping metadata only: it never changes `state_smiles` or
-the validated original input retained in a canonicalization result. An exact
-mixture or salt is therefore preserved even when a parent representation
-groups it.
+Every sha256 token above is the lowercase 64-character hexadecimal encoding
+of SHA-256 over the exact UTF-8 payload shown; angle brackets are notation and
+are not serialized.
 
-Deterministic public semantics are:
+nonstereo-state-smiles is a map-cleared copy with stereochemistry removed and
+without fragment, charge, or tautomer parentization. charge-parent-smiles is a
+map-cleared nonstereo state after ChargeParent. configured-tautomer-parent-smiles
+uses the bounded enumerator described below. These descriptors never authorize
+a merge by themselves.
 
-- `canonical_smiles`: non-isomeric canonical SMILES of the final parent;
-- `isomeric_smiles`: isomeric canonical SMILES of that same final parent after
-  stereo removal. It is normally equal to `canonical_smiles`, and is never a
-  representative state chosen by import order;
-- `inchikey`, formula, and molecular weight: calculated from that parent; and
-- `structure_hash`: SHA-256 of
-  `fidelichem.compound-parent.v1\0<parent-isomeric-smiles>`.
+## Compound parent policy and salts/co-crystals
 
-The parent hash is unique in the project. A novel exact state with one known
-parent hash is a candidate new state for that compound, not an exact-state
-match.
+Compound represents a chemical family, not a source name, pose, or state first
+seen. Starting from the map-cleared identity copy, its parent pipeline is:
 
-### InChIKey and missing structure
+    FragmentParent -> ChargeParent -> ConfiguredTautomerParent
+                   -> RemoveStereochemistry
 
-InChIKey generation occurs only after successful sanitization. Empty or
-unavailable output raises `InchiUnavailableError`; no empty/fabricated key is
-stored. An external InChIKey with no internally normalized SMILES can enumerate
-candidates but cannot authorize an automatic merge. Missing SMILES remains
-`None`; aliases, names, formulae, and InChIKeys never become guessed
-structures or zero-valued properties.
+ConfiguredTautomerParent is a TautomerParent step implemented with a fresh
+RDKit TautomerEnumerator configured with maxTautomers=128 and
+maxTransforms=256. It must call Enumerate, inspect the returned enumeration
+status, and continue only when status is Completed. It then selects the
+canonical tautomer from that completed result. A status other than Completed
+raises TautomerEnumerationLimitError with diagnostic code
+CHEMISTRY_TAUTOMER_ENUMERATION_INCOMPLETE; no compound, state, alias,
+resolution, or audit row may persist for that failed operation.
 
-## Public values
+The exact state always keeps every component. Parentization has these
+conservative representative rules:
 
-All values use the existing frozen `DomainModel`, canonical UUID4 IDs, aware
-UTC timestamps, and `extra="forbid"`.
+1. One organic component plus any number of inorganic counterions: the sole
+   carbon-containing component is the only permitted FragmentParent
+   representative. Verify the FragmentParent output derives from that
+   component; if RDKit selects anything else, fail with a typed parent-policy
+   error. The discarded components remain in exact state and source provenance.
+2. Two or more organic components: never choose a largest fragment, lexical
+   winner, or RDKit tie winner. Raise AmbiguousParentStructureError with code
+   CHEMISTRY_PARENT_MULTIORGANIC. A future importer must surface it as QC that
+   requires a user-provided parent policy; this Phase 2 policy persists no
+   incomplete identity.
+3. No organic component after sanitation: raise
+   CHEMISTRY_PARENT_NO_ORGANIC rather than fabricate a ligand family.
+
+An organic component means a disconnected fragment containing at least one
+carbon atom. This explicitly rejects automatic parentization of co-crystals,
+two-ligand mixtures, and organic/organic ties while supporting normal
+one-organic-fragment salts.
+
+For a completed parent:
+
+- Compound.canonical_smiles is its non-isomeric canonical SMILES.
+- Compound.isomeric_smiles is isomeric canonical SMILES of the same final
+  parent after stereo removal. It normally equals canonical_smiles and is
+  never selected from an import-order-dependent state.
+- Compound.formula is rdMolDescriptors.CalcMolFormula(parent).
+- Compound.molecular_weight is Descriptors.MolWt(parent), the unrounded average
+  molecular weight in g/mol; its numeric value is Da-equivalent. Do not round
+  before persistence.
+- Compound.structure_hash is SHA-256 of UTF-8
+  fidelichem.compound-parent.v1\0<parent-isomeric-smiles>.
+
+A new exact state with one equal parent hash is a candidate state for that
+compound, never an exact-state match.
+
+## InChI evidence and chemistry warnings
+
+RDKit InChI generation is best-effort after sanitization. An available, valid
+key is stored in Compound.inchikey and MolecularState.state_inchikey. An empty
+key is invalid and is never persisted. Unavailable generation leaves both
+values null and adds ChemistryWarning(code="inchi_unavailable") to the
+canonicalization result.
+
+During atomic materialize-plus-confirm, chemistry warning codes are recorded in
+the same batch-correlated AuditEvent new_value_json. No extra half-committed
+audit event is created. An external InChIKey-only claim may enumerate
+candidates but never automatically merges. If a claim supplies SMILES and an
+external InChIKey that differs from the service-generated non-null state key,
+the resolver returns CONFLICT even if an alias appears to agree.
+
+## Public contracts
+
+All public values use the existing frozen DomainModel, canonical UUID4 IDs,
+aware UTC timestamps, and extra="forbid".
 
     class Compound(DomainModel):
         id: OpaqueId = Field(default_factory=new_id)
         canonical_smiles: NonBlankText
         isomeric_smiles: NonBlankText
-        inchikey: InchiKey
+        inchikey: InchiKey | None
         formula: NonBlankText
         molecular_weight: FiniteFloat = Field(gt=0)
         structure_hash: Sha256Digest
+        chemistry_policy_id: NonBlankText
+        rdkit_version: NonBlankText
+        inchi_version: NonBlankText | None
         created_at: UtcTimestamp
 
     class MolecularState(DomainModel):
         id: OpaqueId = Field(default_factory=new_id)
         compound_id: OpaqueId
         state_smiles: NonBlankText
-        state_inchikey: InchiKey
+        state_inchikey: InchiKey | None
         formal_charge: int
         stereochemistry_signature: NonBlankText
         protonation_signature: NonBlankText
         tautomer_signature: NonBlankText
         state_hash: Sha256Digest
+        chemistry_policy_id: NonBlankText
+        rdkit_version: NonBlankText
+        inchi_version: NonBlankText | None
         preparation_ph: FiniteFloat | None = Field(default=None, ge=0, le=14)
 
     class Alias(DomainModel):
@@ -152,28 +242,16 @@ UTC timestamps, and `extra="forbid"`.
         actor_id: str | None
         rationale: str | None
 
-`SourceSystem` is lower-case ASCII matching
-`[a-z0-9][a-z0-9._-]{0,127}`. `source_value` preserves case and Unicode but
-rejects NUL, blank-only text, and values longer than 1,024 characters.
-
-`IdentityDecision` is `confirmed`, `reassigned`, or `retracted`.
-Confirmed requires a compound and no predecessor; reassigned requires a
-compound and a predecessor; retracted requires null targets and a predecessor.
-A non-null state must belong to the selected compound. Decisions are immutable;
-a later row supersedes an earlier decision.
-
-`Alias` is an immutable source identifier. `IdentityResolution` carries its
-mutable-in-time association as an append-only chain, so raw evidence is never
-rewritten. The active resolved-alias projection supplies the compound/state
-relationship described in the master plan.
-
-The chemistry package also exposes:
+    class ChemistryWarning(DomainModel):
+        code: ChemistryWarningCode
+        message: str
 
     class CanonicalizationResult(DomainModel):
         source_smiles: str
         compound: Compound
         molecular_state: MolecularState
-        chemistry_policy: str
+        chemistry_policy_id: NonBlankText
+        warnings: tuple[ChemistryWarning, ...]
 
     class IdentityClaim(DomainModel):
         source_system: SourceSystem | None
@@ -182,72 +260,136 @@ The chemistry package also exposes:
         inchikey: InchiKey | None
         import_batch_id: OpaqueId | None
 
-`source_smiles` is the validated unmodified input so future adapters can retain
-it in provenance. It is not a substitute for a source artifact.
+SourceSystem matches [a-z0-9][a-z0-9._-]{0,127}. source_value preserves case
+and Unicode but rejects NUL, blank-only text, and values longer than 1,024
+characters. IdentityClaim validates source_system and source_value as a
+both-or-neither pair; when present they use the same length/NUL/blank rules as
+Alias. import_batch_id may be null only for an in-memory pre-import claim.
 
-## Pure resolver
+IdentityDecision is confirmed, reassigned, or retracted. Confirmed has a
+compound target and no predecessor; reassigned has a compound target and a
+non-null predecessor; retracted has null targets and a non-null predecessor. A
+non-null state must belong to the selected compound. Alias is raw immutable
+source evidence. Its current
+association is a projection of append-only IdentityResolution rows, not an
+update to Alias.
 
-The resolver takes `IdentityClaim` plus a read-only `IdentityIndex` protocol
-and returns a frozen `ResolutionReport`. It has no SQLAlchemy/repository
-import, write method, audit side effect, or database dependency.
+## Resolver, authority, and persistent projection
 
-    class ResolutionKind(StrEnum):
-        EXACT_STATE = "exact_state"
-        NEW_STATE_FOR_COMPOUND = "new_state_for_compound"
-        ALIAS_ONLY = "alias_only"
-        AMBIGUOUS = "ambiguous"
-        CONFLICT = "conflict"
-        UNRESOLVED = "unresolved"
+The pure IdentityResolver takes IdentityClaim and a read-only IdentityIndex
+protocol. It imports no SQLAlchemy or storage module, has no write method, and
+returns immutable ResolutionReport values.
 
-Candidates sort by compound ID then molecular-state ID, never by external name
-or row order. Rules:
+Resolution kinds are EXACT_STATE, NEW_STATE_FOR_COMPOUND, ALIAS_ONLY,
+AMBIGUOUS, CONFLICT, and UNRESOLVED. Candidates always sort by compound ID,
+molecular-state ID (null last), then resolution ID.
 
-1. Valid SMILES is canonicalized first. A unique equal `state_hash` is
-   `EXACT_STATE`.
-2. With no exact state and one equal parent hash, return
-   `NEW_STATE_FOR_COMPOUND`; do not write the state.
-3. Structure evidence and alias evidence targeting different identities yield
-   `CONFLICT`.
-4. Without SMILES, InChIKey/alias evidence only produces `ALIAS_ONLY` or
-   `AMBIGUOUS`, never automatic assignment.
-5. No usable evidence produces `UNRESOLVED`.
+A PersistentIdentityIndex is a separate storage-side read-only implementation
+of IdentityIndex. It runs only SELECT statements against the project database,
+uses deterministic ORDER BY, and is used by integration/reopen workflows. Its
+active-resolution projection includes a resolution only when:
 
-The only Phase 2 mutating API is `IdentityService.confirm`, `.reassign`, and
-`.retract`. It validates the selected target, appends the alias/resolution
-decision and exactly one canonical `AuditEvent` in a single unit of work.
+- it has no successor row;
+- its decision is not retracted;
+- its Alias.import_batch_id refers to a batch whose status is not rolled_back;
+  and
+- it has a non-null compound target.
 
-## Storage and rollback
+It excludes superseded/retracted decisions and rolled-back-batch evidence from
+every candidate query, including state hash, parent hash, InChIKey, and alias.
+The resolver still remains pure because it depends on the protocol, not the
+storage implementation.
 
-Migration `0002_chemistry_identity` creates append-only tables with named
-constraints and `ON DELETE RESTRICT` FKs:
+The authority matrix is mandatory:
 
-- `compound`: UUID and unique parent `structure_hash`;
-- `molecular_state`: UUID, `compound_id`, and unique exact `state_hash`;
-- `alias`: UUID, source system/value, `import_batch_id`, and unique
-  `(import_batch_id, source_system, source_value)`; and
-- `identity_resolution`: UUID, alias/target FKs, nullable self-FK
-  `supersedes_id`, and unique `supersedes_id` to prevent forks.
+| Resolver result | Permitted atomic binding |
+| --- | --- |
+| EXACT_STATE | Bind only the exact state from canonicalization and its own compound. Reject sibling state, different compound, or compound-only downgrade. |
+| NEW_STATE_FOR_COMPOUND | Materialize the canonicalized exact state under the reported parent and bind that exact state. Reject a sibling-state or compound-only selection. |
+| ALIAS_ONLY / AMBIGUOUS | Require explicit user actor, target compound, and nonblank rationale. Bind the compound only: molecular_state_id must be null because alias-only evidence has no authority to select a state. Adding a state requires a new structural claim and resolver report. |
+| CONFLICT | Require an explicit override actor, selected target, and nonblank rationale; preserve both conflicting evidence and audit the override. |
+| UNRESOLVED | Do not bind or invent an identity. |
 
-Checks enforce hash/UTC/text/decision/pH constraints. A trigger checks state
-ownership by selected compound. Triggers reject update/delete/replacement on
-all four tables. No cascade is introduced.
+A valid SMILES is canonicalized first. A unique equal state hash yields
+EXACT_STATE. With no state and one parent hash it yields NEW_STATE_FOR_COMPOUND.
+If supplied external InChIKey conflicts with generated structural evidence, or
+structural and active alias evidence target different identities, it yields
+CONFLICT. Missing SMILES/InChI/alias data is never converted into a molecule.
 
-The identity catalogue may survive a batch rollback like raw artifacts and
-audit history. Visibility of sourced identity evidence is determined by active
-aliases/resolutions whose import batch is not logically rolled back; rollback
-does not physically erase molecular information.
+## Schema, concurrency, and rollback
+
+Migration 0002_chemistry_identity creates compound, molecular_state, alias,
+and identity_resolution with named constraints, indexes, and ON DELETE RESTRICT
+FKs. Compound and state include chemistry_policy_id, rdkit_version, and nullable
+inchi_version. Every identity record is append-only; triggers reject UPDATE,
+DELETE, and replacement semantics.
+
+identity_resolution must enforce its chain in the database, not only service
+code:
+
+- unique partial index on alias_id where supersedes_id IS NULL: at most one
+  root resolution per alias;
+- unique supersedes_id: exactly one successor per predecessor;
+- self-FK on supersedes_id: a non-null predecessor must exist;
+- BEFORE INSERT trigger: a non-null predecessor must have the same alias_id as
+  NEW.alias_id and must not itself be retracted;
+- BEFORE INSERT trigger: decision/target shape and state-to-compound ownership
+  must be valid; and
+- application repository validation repeats these checks for typed errors.
+
+The two unique constraints provide optimistic concurrency. Concurrent initial
+confirmations for one alias allow exactly one root; concurrent reassignments of
+one active decision allow exactly one successor. The loser becomes a safe typed
+IdentityResolutionConflictError after rollback and no loser audit row remains.
+
+Compound and state form a deduplicated identity catalogue. They can survive
+batch rollback like raw artifacts/audit history. The persistent projection
+hides all identity evidence sourced solely from a rolled-back batch; it never
+physically deletes molecular information.
+
+## Atomic services
+
+IdentityService exposes one import-facing operation:
+
+    materialize_and_confirm(result, claim, report, selection, actor, clock)
+
+It opens exactly one UnitOfWork. Within that transaction it reuses or appends
+the compound, reuses or appends the state, validates the authority matrix,
+appends Alias and root IdentityResolution, and appends one AuditEvent whose
+import_batch_id equals Alias.import_batch_id. The audit new_value_json includes
+hashes, policy/runtime provenance, result warning codes, report kind, selected
+target, and override rationale when applicable. Failure at any flush or audit
+step rolls back compound, state, alias, resolution, and audit together.
+
+reassign and retract append only a successor decision plus one
+batch-correlated AuditEvent. They do not materialize structures, modify Alias,
+or permit a fork. No separate materialize_structure followed by confirm API is
+allowed because it would create an un-audited partial identity.
 
 ## Test and acceptance requirements
 
-Use RED-GREEN-REFACTOR for equivalent SMILES, stereo/protomer/tautomer state
-separation, exact mixtures, invalid and resource-bounded inputs, InChI failure,
-InChIKey-only/missing-SMILES/alias-only/conflict cases, deterministic ordering,
-schema migration from populated `0001`, direct SQL immutability, corrupt rows,
-atomic decision/audit failures, reassignment/retraction, and project reopen.
-Hypothesis may produce bounded alias/claim combinations but never unbounded
-SMILES sent to RDKit.
+RED-GREEN-REFACTOR must cover:
 
-Phase 2 passes only with 80%+ branch coverage globally and for new modules,
-safe populated-Phase-1 migration, no silent ambiguous merge, pure resolver,
-append-only reversible decisions, full verification gate, and a Terra xhigh
+- mapped or atom-renumbered equivalent SMILES producing identical state hash;
+- stereo/protomer/tautomer separation, policy hash payload changes, exact salt
+  preservation, formula/mass golden values, and no persisted mass rounding;
+- one-organic salt acceptance; two-organic co-crystal/tie QC failure; no
+  incomplete parent persistence; and TautomerEnumerator non-Completed status;
+- nullable InChIKey with inchi_unavailable warning/audit; empty-key rejection;
+  and supplied-key-versus-SMILES conflict;
+- source-system/source-value pair validation and bounded external data;
+- populated 0001 migration including policy/runtime columns, checks, triggers,
+  partial indexes, direct SQL protection, and corrupt-row safe errors;
+- concurrent root confirmation and concurrent reassignment, one winner/one
+  typed conflict, one committed audit, and no fork;
+- PersistentIdentityIndex deterministic queries after reopen and exclusion of
+  superseded, retracted, and rolled-back-batch evidence;
+- every authority-matrix rejection, especially exact-state sibling/downgrade;
+  and
+- atomic materialize-plus-confirm failure before any flush, after state flush,
+  and before audit flush, proving no partial row persists.
+
+Phase 2 passes only with 80%+ global/new-module branch coverage, safe populated
+Phase 1 migration, pure resolver, persistent read-only projection, no silent
+merge, complete authority enforcement, full verification gate, and Terra xhigh
 review with no unresolved Critical or Important finding.
