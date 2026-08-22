@@ -173,7 +173,6 @@ class PersistentIdentityIndex:
                 .where(
                     _AliasRow.source_system == source_system,
                     _AliasRow.source_value == source_value,
-                    _IdentityResolutionRow.decision != "retracted",
                 )
             )
             statement = statement.order_by(

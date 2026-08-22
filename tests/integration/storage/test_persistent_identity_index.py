@@ -345,6 +345,7 @@ def test_retraction_and_rolled_back_batch_hide_active_alias_not_catalog(
         uow.import_batches.add(batch)
         uow.compounds.add(_compound())
         uow.molecular_states.add(_state(STATE_A_ID, "b" * 64))
+        uow.molecular_states.add(_state(STATE_B_ID, "c" * 64))
         uow.aliases.add(_alias(batch.id))
         uow.identity_resolutions.add(_resolution())
     with UnitOfWork(migrated_engine) as uow:
@@ -360,6 +361,7 @@ def test_retraction_and_rolled_back_batch_hide_active_alias_not_catalog(
     index = PersistentIdentityIndex(migrated_engine)
     assert index.active_by_alias("gold", "ligand_17") == ()
     assert index.catalog_by_state_hash("b" * 64)[0].catalog_dormant is True
+    assert index.catalog_by_state_hash("c" * 64)[0].catalog_dormant is True
     assert index.catalog_by_parent_hash("a" * 64)[0].catalog_dormant is True
     assert all(
         row.catalog_dormant
@@ -383,6 +385,7 @@ def test_rolled_back_batch_hides_active_projection_but_not_catalog(
         uow.import_batches.add(batch)
         uow.compounds.add(_compound())
         uow.molecular_states.add(_state(STATE_A_ID, "d" * 64))
+        uow.molecular_states.add(_state(STATE_B_ID, "e" * 64))
         uow.aliases.add(_alias(batch.id))
         uow.identity_resolutions.add(_resolution())
     with UnitOfWork(migrated_engine) as uow:
@@ -391,6 +394,7 @@ def test_rolled_back_batch_hides_active_projection_but_not_catalog(
     index = PersistentIdentityIndex(migrated_engine)
     assert index.active_by_alias("gold", "ligand_17") == ()
     assert index.catalog_by_state_hash("d" * 64)[0].catalog_dormant is True
+    assert index.catalog_by_state_hash("e" * 64)[0].catalog_dormant is True
     assert index.catalog_by_parent_hash("a" * 64)[0].catalog_dormant is True
     assert all(
         row.catalog_dormant
@@ -716,6 +720,274 @@ def test_corrupt_retracted_successor_is_not_hidden_by_active_filter(
         PersistentIdentityIndex(migrated_engine).active_by_alias("gold", "ligand_17")
 
 
+def test_deep_retracted_chain_corruption_is_safe_in_active_and_catalog(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "edededed-eded-4ede-8ede-edededededed",
+        ImportStatus.COMPLETED,
+    )
+    child_id = "abababab-abab-4bab-8bab-abababababab"
+    second_id = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.aliases.add(_alias(batch.id))
+        uow.identity_resolutions.add(_resolution())
+        uow.identity_resolutions.add(
+            _resolution(
+                decision=IdentityDecision.RETRACTED,
+                resolution_id=child_id,
+                compound_id=None,
+                molecular_state_id=None,
+                supersedes_id=ROOT_ID,
+            )
+        )
+
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "supersedes_id,decided_at,actor_kind) VALUES "
+                "(:id,:alias,'retracted',NULL,NULL,:supersedes,:decided,'corrupt')"
+            ),
+            {
+                "id": second_id,
+                "alias": ALIAS_ID,
+                "supersedes": child_id,
+                "decided": "2026-08-22T12:02:00Z",
+            },
+        )
+        connection.commit()
+
+    index = PersistentIdentityIndex(migrated_engine)
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.active_by_alias("gold", "ligand_17")
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.catalog_by_state_hash("a" * 64)
+
+
+def test_retracted_only_corruption_is_not_hidden_by_active_filter(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "bdbdbdbd-bdbd-4bdb-8bdb-bdbdbdbdbdbd",
+        ImportStatus.COMPLETED,
+    )
+    alias_id = "bebebebe-bebe-4ebe-8ebe-bebebebebebe"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.aliases.add(
+            Alias(
+                id=alias_id,
+                source_system="gold",
+                source_value="retracted-only-corrupt",
+                import_batch_id=batch.id,
+                created_at=NOW,
+            )
+        )
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "decided_at,actor_kind) "
+                "VALUES ('bfbfbfbf-bfbf-4fbf-8fbf-bfbfbfbfbfbf',:alias,'retracted',"
+                "NULL,NULL,:decided,'corrupt')"
+            ),
+            {"alias": alias_id, "decided": "2026-08-22T12:00:00Z"},
+        )
+        connection.commit()
+
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        PersistentIdentityIndex(migrated_engine).active_by_alias(
+            "gold", "retracted-only-corrupt"
+        )
+
+
+def test_missing_compound_target_is_safe_in_active_projection(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "dededede-dede-4ded-8ded-dededededede",
+        ImportStatus.COMPLETED,
+    )
+    alias_id = "d1d1d1d1-d1d1-41d1-81d1-d1d1d1d1d1d1"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.aliases.add(
+            Alias(
+                id=alias_id,
+                source_system="gold",
+                source_value="missing-compound",
+                import_batch_id=batch.id,
+                created_at=NOW,
+            )
+        )
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "decided_at,actor_kind) "
+                "VALUES ('d2d2d2d2-d2d2-42d2-82d2-d2d2d2d2d2d2',:alias,'confirmed',"
+                "'missing-compound',NULL,:decided,'system')"
+            ),
+            {"alias": alias_id, "decided": "2026-08-22T12:00:00Z"},
+        )
+        connection.commit()
+
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        PersistentIdentityIndex(migrated_engine).active_by_alias(
+            "gold", "missing-compound"
+        )
+
+
+def test_missing_state_target_is_safe_in_active_projection(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "d3d3d3d3-d3d3-43d3-83d3-d3d3d3d3d3d3",
+        ImportStatus.COMPLETED,
+    )
+    alias_id = "d4d4d4d4-d4d4-44d4-84d4-d4d4d4d4d4d4"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.aliases.add(
+            Alias(
+                id=alias_id,
+                source_system="gold",
+                source_value="missing-state",
+                import_batch_id=batch.id,
+                created_at=NOW,
+            )
+        )
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "decided_at,actor_kind) "
+                "VALUES ('d5d5d5d5-d5d5-45d5-85d5-d5d5d5d5d5d5',:alias,'confirmed',"
+                ":compound,'missing-state',:decided,'system')"
+            ),
+            {
+                "alias": alias_id,
+                "compound": COMPOUND_ID,
+                "decided": "2026-08-22T12:00:00Z",
+            },
+        )
+        connection.commit()
+
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        PersistentIdentityIndex(migrated_engine).active_by_alias(
+            "gold", "missing-state"
+        )
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        PersistentIdentityIndex(migrated_engine).catalog_by_parent_hash("a" * 64)
+
+
+def test_ownership_mismatch_is_safe_in_active_projection(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "d6d6d6d6-d6d6-46d6-86d6-d6d6d6d6d6d6",
+        ImportStatus.COMPLETED,
+    )
+    other_compound_id = "77777777-2222-4222-8222-222222222222"
+    other_state_id = "88888888-3333-4333-8333-333333333333"
+    alias_id = "d7d7d7d7-d7d7-47d7-87d7-d7d7d7d7d7d7"
+    other_compound = _compound().model_copy(
+        update={
+            "id": other_compound_id,
+            "structure_hash": "8" * 64,
+            "inchikey": "VNWKTOKETHGBQD-UHFFFAOYSA-N",
+        }
+    )
+    other_state = _state(other_state_id, "9" * 64).model_copy(
+        update={"compound_id": other_compound_id}
+    )
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.compounds.add(other_compound)
+        uow.molecular_states.add(other_state)
+        uow.aliases.add(
+            Alias(
+                id=alias_id,
+                source_system="gold",
+                source_value="ownership-mismatch",
+                import_batch_id=batch.id,
+                created_at=NOW,
+            )
+        )
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "decided_at,actor_kind) "
+                "VALUES ('d8d8d8d8-d8d8-48d8-88d8-d8d8d8d8d8d8',:alias,'confirmed',"
+                ":compound,:state,:decided,'system')"
+            ),
+            {
+                "alias": alias_id,
+                "compound": COMPOUND_ID,
+                "state": other_state_id,
+                "decided": "2026-08-22T12:00:00Z",
+            },
+        )
+        connection.commit()
+
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        PersistentIdentityIndex(migrated_engine).active_by_alias(
+            "gold", "ownership-mismatch"
+        )
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        PersistentIdentityIndex(migrated_engine).catalog_by_state_hash("9" * 64)
+
+
 def test_corrupt_batch_status_is_not_hidden_by_active_filter(
     migrated_engine: Engine,
 ) -> None:
@@ -734,7 +1006,7 @@ def test_corrupt_batch_status_is_not_hidden_by_active_filter(
                 "INSERT INTO import_batch "
                 "(id,project_id,adapter_id,adapter_version,started_at,status,"
                 "source_root,file_count) VALUES "
-                "(:id,:project,'adapter','1',:started,'corrupt','inputs',0)"
+                "(:id,:project,'','1',:started,'completed','inputs',0)"
             ),
             {
                 "id": batch_id,
@@ -775,6 +1047,8 @@ def test_corrupt_batch_status_is_not_hidden_by_active_filter(
         PersistentIdentityIndex(migrated_engine).active_by_alias(
             "gold", "corrupt-alias"
         )
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        PersistentIdentityIndex(migrated_engine).catalog_by_state_hash("a" * 64)
 
 
 def test_reopen_uses_a_new_engine_and_keeps_dormant_catalog_rows(
