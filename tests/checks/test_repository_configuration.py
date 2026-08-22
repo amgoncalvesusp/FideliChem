@@ -25,7 +25,11 @@ def test_runtime_dependencies_include_phase_one_storage_stack() -> None:
         "pydantic>=2.10,<3",
         "SQLAlchemy>=2.0,<3",
         "alembic>=1.13,<2",
+        "rdkit==2026.3.4",
     ]
+    dependency_groups = pyproject["dependency-groups"]
+    assert isinstance(dependency_groups, dict)
+    assert "hypothesis>=6.0" in dependency_groups["dev"]
 
 
 @pytest.mark.config

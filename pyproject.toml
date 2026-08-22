@@ -12,6 +12,7 @@ dependencies = [
   "pydantic>=2.10,<3",
   "SQLAlchemy>=2.0,<3",
   "alembic>=1.13,<2",
+  "rdkit==2026.3.4",
 ]
 
 [project.scripts]
@@ -23,6 +24,7 @@ fidelichem-gui = "fidelichem.gui.application:main"
 [dependency-groups]
 dev = [
   "coverage[toml]>=7.6",
+  "hypothesis>=6.0",
   "mypy>=1.13",
   "pip-audit>=2.7",
   "pytest>=8.3",

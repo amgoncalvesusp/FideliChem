@@ -31,3 +31,48 @@ class UnsafePathError(DomainValidationError):
 
 class InvalidStatusTransitionError(DomainError):
     """An import batch lifecycle transition is not allowed."""
+
+
+class ChemistryError(DomainError):
+    """Base class for safe, stable chemistry diagnostics."""
+
+    default_code = "CHEMISTRY_ERROR"
+    code = default_code
+
+    def __init__(self, message: str | None = None, *, code: str | None = None):
+        self.code = code or self.default_code
+        self.diagnostic_code = self.code
+        super().__init__(message or self.code)
+
+
+class InvalidStructureError(ChemistryError):
+    """A supplied structure cannot be represented safely."""
+
+    default_code = "CHEMISTRY_INVALID_STRUCTURE"
+    code = default_code
+
+
+class TautomerEnumerationLimitError(ChemistryError):
+    """Configured tautomer enumeration did not complete within policy."""
+
+    default_code = "CHEMISTRY_TAUTOMER_ENUMERATION_INCOMPLETE"
+    code = default_code
+
+
+class AmbiguousParentStructureError(ChemistryError):
+    """A structure has multiple organic components without a safe parent."""
+
+    default_code = "CHEMISTRY_PARENT_MULTIORGANIC"
+    code = default_code
+
+
+class AliasConflictError(DomainError):
+    """A source alias conflicts with an existing identity record."""
+
+    code = "IDENTITY_ALIAS_CONFLICT"
+
+
+class IdentityResolutionConflictError(DomainError):
+    """An append-only identity decision chain has a concurrent conflict."""
+
+    code = "IDENTITY_RESOLUTION_CONFLICT"
