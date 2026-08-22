@@ -29,6 +29,11 @@ All notable changes to FideliChem will be documented in this file.
 - ScoreDefinition domain model with explicit comparability scopes, units, and directionality.
 - ScoreRegistry service with catalog of standard docking scoring functions (ChemPLP, GoldScore, ChemScore, ASP, Vina affinity, Glide, etc.) and heuristic direction inference.
 - ScoreNormalizer computing direction-aware percentiles (oriented with 1.0 = best candidate), ranks, robust Z-scores via MAD, and scope distribution statistics with strict missing data preservation.
+- CCDC GOLD Evidence Adapter (`GoldAdapter`) for automated detection, planning, and parsing of docking directories and solution files.
+- GOLD configuration and parameter parser (`gold.conf` / `gold.params`), ranking list parser (`bestranking.lst`, `gold_ranking.txt`, `ranking.csv`), and multi-molecule TRIPOS MOL2 solution parser (`gold_soln_*.mol2`).
+- Multi-scoring extraction preserving distinct observations for ChemPLP, GoldScore, ChemScore, ASP, and additional rescores across multiple runs without cross-contamination.
+- GOLD QC issue diagnostic reporting for duplicate pose IDs, missing solution files, and incomplete runs.
+
 
 
 

@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-5-score-registry-normalization`
-- Base integrada: `feat/phase-4-universal-table-importer`
-- Última fase concluída: **Fase 5 — Score Registry + Normalization**
-- Etapa ativa: nenhuma; Fase 5 concluída com sucesso.
-- Próxima ação exata: iniciar a Fase 6 — GOLD Adapter.
+- Branch de execução: `feat/phase-6-gold-adapter`
+- Base integrada: `feat/phase-5-score-registry-normalization`
+- Última fase concluída: **Fase 6 — GOLD Adapter**
+- Etapa ativa: nenhuma; Fase 6 concluída com sucesso.
+- Próxima ação exata: iniciar a Fase 7 — SMILES2Select + SMILES2Docking.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -22,9 +22,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 3 — Adapter SDK + Import Manager | Concluída | Tasks 1–8 concluídas; EvidenceAdapter Protocol, AdapterRegistry, ImportManager, DuplicateImportDetector, FakeAdapter e suite E2E aprovados. |
 | 4 — Universal Table Importer | Concluída | UniversalTableAdapter, PresetManager, TableMappingSchema, robust readers (CSV/TSV/JSON/JSONL), 508 testes passando com 89,55% de branch coverage. |
 | 5 — Score Registry + normalization | Concluída | ScoreDefinition, ScoreRegistry com catálogo de docking functions, ScoreNormalizer (percentis orientados melhor=1.0, robust Z, missing preservation), 519 testes passando com 89,75% de branch coverage. |
-| 6 — GOLD Adapter | Pendente | Próxima fase; iniciar especificação e implementação. |
+| 6 — GOLD Adapter | Concluída | GoldAdapter, gold.conf parser, bestranking.lst parser, MOL2 multi-solution parser, multi-scoring (ChemPLP, GoldScore, ChemScore, ASP, rescores), QC issues, 526 testes passando com 89,23% de branch coverage. |
+| 7 — SMILES2Select + SMILES2Docking | Pendente | Próxima fase; iniciar especificação e implementação. |
 
-| 7 — SMILES2Select + SMILES2Docking | Pendente | Aguardar gate Terra da Fase 6. |
 | 8 — DockLens | Pendente | Aguardar gate Terra da Fase 7. |
 | 9 — MolDynStudio + GROMACS | Pendente | Aguardar gate Terra da Fase 8. |
 | 10 — Analytics Engine | Pendente | Aguardar gate Terra da Fase 9. |
