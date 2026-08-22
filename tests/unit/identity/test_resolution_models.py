@@ -171,9 +171,7 @@ def test_identity_models_have_no_storage_or_resolver_imports() -> None:
     source = Path(__file__).resolve().parents[3] / "src/fidelichem/identity/models.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
     imported_modules = {
-        node.module or ""
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
+        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
     }
     imported_modules.update(
         alias.name

@@ -393,6 +393,26 @@ class ImportBatchRepository(_RepositoryBase):
             ),
         )
 
+    def list_by_project(
+        self,
+        project_id: str,
+        *,
+        status: ImportStatus | None = None,
+    ) -> tuple[ImportBatch, ...]:
+        session = self._require_session()
+        statement = select(_ImportBatchRow).where(
+            _ImportBatchRow.project_id == project_id
+        )
+        if status is not None:
+            statement = statement.where(_ImportBatchRow.status == status.value)
+        statement = statement.order_by(_ImportBatchRow.started_at, _ImportBatchRow.id)
+        return _safe_read(
+            "import batch",
+            lambda: tuple(
+                _batch_model(row) for row in session.execute(statement).scalars().all()
+            ),
+        )
+
     def complete(
         self,
         batch_id: str,

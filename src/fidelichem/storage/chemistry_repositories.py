@@ -191,9 +191,9 @@ class CompoundRepository(_ChemistryRepositoryBase):
         session = self._require_session()
         return self._read(
             "compound",
-            lambda: (
-                lambda row: None if row is None else _compound_model(row)
-            )(session.get(_CompoundRow, compound_id)),
+            lambda: (lambda row: None if row is None else _compound_model(row))(
+                session.get(_CompoundRow, compound_id)
+            ),
         )
 
     def get_by_structure_hash(self, structure_hash: str) -> Compound | None:
@@ -236,9 +236,9 @@ class MolecularStateRepository(_ChemistryRepositoryBase):
         session = self._require_session()
         return self._read(
             "molecular state",
-            lambda: (
-                lambda row: None if row is None else _state_model(row)
-            )(session.get(_MolecularStateRow, state_id)),
+            lambda: (lambda row: None if row is None else _state_model(row))(
+                session.get(_MolecularStateRow, state_id)
+            ),
         )
 
     def get_by_state_hash(self, state_hash: str) -> MolecularState | None:
@@ -273,9 +273,9 @@ class AliasRepository(_ChemistryRepositoryBase):
         session = self._require_session()
         return self._read(
             "alias",
-            lambda: (
-                lambda row: None if row is None else _alias_model(row)
-            )(session.get(_AliasRow, alias_id)),
+            lambda: (lambda row: None if row is None else _alias_model(row))(
+                session.get(_AliasRow, alias_id)
+            ),
         )
 
     def list_by_batch(self, batch_id: str) -> tuple[Alias, ...]:
@@ -333,9 +333,9 @@ class IdentityResolutionRepository(_ChemistryRepositoryBase):
         session = self._require_session()
         return self._read(
             "identity resolution",
-            lambda: (
-                lambda row: None if row is None else _resolution_model(row)
-            )(session.get(_IdentityResolutionRow, resolution_id)),
+            lambda: (lambda row: None if row is None else _resolution_model(row))(
+                session.get(_IdentityResolutionRow, resolution_id)
+            ),
         )
 
     def list_by_alias(self, alias_id: str) -> tuple[IdentityResolution, ...]:

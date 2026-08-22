@@ -214,7 +214,9 @@ def test_concurrent_new_state_race_reuses_one_state_and_audits_both(
     report = ResolutionReport(
         kind=ResolutionKind.NEW_STATE,
         reason=ResolutionReason.PARENT_MATCH,
-        candidates=(ResolutionCandidate(compound_id="33333333-3333-4333-8333-333333333333"),),
+        candidates=(
+            ResolutionCandidate(compound_id="33333333-3333-4333-8333-333333333333"),
+        ),
         catalog_action=CatalogAction.REUSE_COMPOUND,
         catalog_match_dormant=True,
     )
@@ -294,9 +296,12 @@ def test_concurrent_transition_has_one_winner_and_no_losing_audit(
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(lambda _: _attempt(transition), range(2)))
     assert sum(not isinstance(outcome, Exception) for outcome in outcomes) == 1
-    assert sum(
-        isinstance(outcome, IdentityResolutionConflictError) for outcome in outcomes
-    ) == 1
+    assert (
+        sum(
+            isinstance(outcome, IdentityResolutionConflictError) for outcome in outcomes
+        )
+        == 1
+    )
     with UnitOfWork(migrated_engine) as uow:
         assert len(uow.identity_resolutions.list_by_alias(alias_id)) == 2
         assert len(uow.audit_events.list_by_batch(BATCH_ID)) == 2
@@ -306,9 +311,7 @@ def test_concurrent_restore_has_one_winner_and_no_losing_audit(
     migrated_engine: Engine,
 ) -> None:
     alias_id, predecessor_id = _seed_root(migrated_engine)
-    retracted = _service(migrated_engine).retract(
-        alias_id, predecessor_id, _user()
-    )
+    retracted = _service(migrated_engine).retract(alias_id, predecessor_id, _user())
     barrier = Barrier(2)
 
     def restore() -> object:
@@ -329,9 +332,12 @@ def test_concurrent_restore_has_one_winner_and_no_losing_audit(
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(lambda _: _attempt(restore), range(2)))
     assert sum(not isinstance(outcome, Exception) for outcome in outcomes) == 1
-    assert sum(
-        isinstance(outcome, IdentityResolutionConflictError) for outcome in outcomes
-    ) == 1
+    assert (
+        sum(
+            isinstance(outcome, IdentityResolutionConflictError) for outcome in outcomes
+        )
+        == 1
+    )
     with UnitOfWork(migrated_engine) as uow:
         assert len(uow.identity_resolutions.list_by_alias(alias_id)) == 3
         assert len(uow.audit_events.list_by_batch(BATCH_ID)) == 3

@@ -149,9 +149,7 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
     mapped_result = chemistry.canonicalize(mapped_source, created_at=NOW)
     assert mapped_result.source_smiles == mapped_source
     assert ":" not in mapped_result.molecular_state.state_smiles
-    first_claim = _claim(
-        first_batch.id, source_value="ligand-1", smiles=mapped_source
-    )
+    first_claim = _claim(first_batch.id, source_value="ligand-1", smiles=mapped_source)
     first_report = resolver.resolve(
         mapped_result, first_claim, PersistentIdentityIndex(engine)
     )
@@ -267,12 +265,8 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
 
     alias_batch = _batch(reopened.project.id)
     storage.create_import_batch(alias_batch)
-    alias_claim = _claim(
-        alias_batch.id, source_value="unavailable", smiles=None
-    )
-    alias_report = resolver.resolve(
-        None, alias_claim, PersistentIdentityIndex(engine)
-    )
+    alias_claim = _claim(alias_batch.id, source_value="unavailable", smiles=None)
+    alias_report = resolver.resolve(None, alias_claim, PersistentIdentityIndex(engine))
     assert alias_report.kind is ResolutionKind.ALIAS_ONLY
     alias_candidate = _candidate(alias_report, state=True)
     before_alias_only = _counts(engine)
@@ -293,17 +287,16 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
 
     # Resolver-only claims remain valid, while persistence prerequisites fail
     # before IdentityService opens a UnitOfWork.
-    resolver_only_claim = _claim(
-        None, source_value="ligand-1", smiles=None
-    )
+    resolver_only_claim = _claim(None, source_value="ligand-1", smiles=None)
     resolver_only_report = resolver.resolve(
         None, resolver_only_claim, PersistentIdentityIndex(engine)
     )
     assert resolver_only_report.kind is ResolutionKind.ALIAS_ONLY
     null_source_claim = IdentityClaim()
-    assert resolver.resolve(
-        None, null_source_claim, PersistentIdentityIndex(engine)
-    ).kind is ResolutionKind.UNRESOLVED
+    assert (
+        resolver.resolve(None, null_source_claim, PersistentIdentityIndex(engine)).kind
+        is ResolutionKind.UNRESOLVED
+    )
     calls: list[int] = []
     guarded_service = _service(engine, calls)
     alias_selection = IdentitySelection(
@@ -311,11 +304,14 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
         compound_id=alias_candidate.compound_id,
     )
     existing_batch_null_source_claim = IdentityClaim(import_batch_id=first_batch.id)
-    assert resolver.resolve(
-        None,
-        existing_batch_null_source_claim,
-        PersistentIdentityIndex(engine),
-    ).kind is ResolutionKind.UNRESOLVED
+    assert (
+        resolver.resolve(
+            None,
+            existing_batch_null_source_claim,
+            PersistentIdentityIndex(engine),
+        ).kind
+        is ResolutionKind.UNRESOLVED
+    )
     with pytest.raises(ValueError, match="persistence prerequisites"):
         guarded_service.confirm_claim(
             None,
@@ -340,9 +336,7 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
 
     arbitrary_batch = _batch(reopened.project.id)
     storage.create_import_batch(arbitrary_batch)
-    arbitrary_claim = _claim(
-        arbitrary_batch.id, source_value="ligand-1", smiles=None
-    )
+    arbitrary_claim = _claim(arbitrary_batch.id, source_value="ligand-1", smiles=None)
     arbitrary_report = resolver.resolve(
         None,
         arbitrary_claim,
@@ -517,9 +511,7 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
         ),
         _user(),
     )
-    final_retracted = _service(engine).retract(
-        first_alias.id, restored.id, _user()
-    )
+    final_retracted = _service(engine).retract(first_alias.id, restored.id, _user())
     assert final_retracted.decision is IdentityDecision.RETRACTED
 
     _assert_dormant_identity(

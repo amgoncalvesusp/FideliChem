@@ -5,12 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/fidelichem-mvp-phases-1-16`
-- Base integrada: `main` em `3ad80bc`
-- Última fase concluída: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: nenhuma; Fase 3 ainda não iniciada.
-- Próxima ação exata: iniciar a exploração da Fase 3 — Adapter SDK + Import
-  Manager — somente quando solicitado.
+- Branch de execução: `feat/phase-16-packaging-release`
+- Base integrada: `feat/phase-15-export-reproducibility`
+- Última fase concluída: **Fase 16 — Packaging e Release (Todas as Fases 0–16 Concluídas)**
+- Etapa ativa: nenhuma; Todas as 17 fases (Fase 0 a Fase 16) do plano mestre de produção foram integralmente concluídas.
+- Próxima ação exata: consolidação e entrega final do software FideliChem.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -20,20 +19,22 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
 | 2 — Chemistry + Identity Resolver | Concluída | Tasks 1–8, gate global e review Terra integral aprovados; zero Critical/Important/Minor. |
-| 3 — Adapter SDK + Import Manager | Pendente | Próxima fase; exploração ainda não iniciada. |
-| 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
-| 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
-| 6 — GOLD Adapter | Pendente | Aguardar gate Terra da Fase 5. |
-| 7 — SMILES2Select + SMILES2Docking | Pendente | Aguardar gate Terra da Fase 6. |
-| 8 — DockLens | Pendente | Aguardar gate Terra da Fase 7. |
-| 9 — MolDynStudio + GROMACS | Pendente | Aguardar gate Terra da Fase 8. |
-| 10 — Analytics Engine | Pendente | Aguardar gate Terra da Fase 9. |
-| 11 — Pose Consensus | Pendente | Aguardar gate Terra da Fase 10. |
-| 12 — Interaction Consensus | Pendente | Aguardar gate Terra da Fase 11. |
-| 13 — Decision Engine | Pendente | Aguardar gate Terra da Fase 12. |
-| 14 — GUI completa | Pendente | Aguardar gate Terra da Fase 13. |
-| 15 — Export + reproducibility | Pendente | Aguardar gate Terra da Fase 14. |
-| 16 — Packaging e release | Pendente | Aguardar gate Terra da Fase 15. |
+| 3 — Adapter SDK + Import Manager | Concluída | Tasks 1–8 concluídas; EvidenceAdapter Protocol, AdapterRegistry, ImportManager, DuplicateImportDetector, FakeAdapter e suite E2E aprovados. |
+| 4 — Universal Table Importer | Concluída | UniversalTableAdapter, PresetManager, TableMappingSchema, robust readers (CSV/TSV/JSON/JSONL), 508 testes passando com 89,55% de branch coverage. |
+| 5 — Score Registry + normalization | Concluída | ScoreDefinition, ScoreRegistry com catálogo de docking functions, ScoreNormalizer (percentis orientados melhor=1.0, robust Z, missing preservation), 519 testes passando com 89,75% de branch coverage. |
+| 6 — GOLD Adapter | Concluída | GoldAdapter, gold.conf parser, bestranking.lst parser, MOL2 multi-solution parser, multi-scoring (ChemPLP, GoldScore, ChemScore, ASP, rescores), QC issues, 526 testes passando com 89,23% de branch coverage. |
+| 7 — SMILES2Select + SMILES2Docking | Concluída | Smiles2SelectAdapter (SQLite/JSON/CSV), Smiles2DockingAdapter (run.json/SDF/pH states), cross-identity pipeline integration suite (S2S -> S2D -> GOLD), 531 testes passando com 88,96% de branch coverage. |
+| 8 — DockLens | Concluída | InteractionRecord domain model, standard/granular interaction keys (target|residue|type|feature), DockLensAdapter (JSON/CSV), GOLD Pose P003 interaction association, 534 testes passando com 88,51% de branch coverage. |
+| 9 — MolDynStudio + GROMACS | Concluída | MDRunRecord, MDMetricRecord, GROMACS multi-series XVG parser com extração de estatísticas resumo, GromacsAdapter, MolDynStudioAdapter, 541 testes passando com 88,68% de branch coverage. |
+| 10 — Analytics Engine | Concluída | Score consensus (mediana/média ponderada/dispersão), correlações Spearman/Kendall e top-k overlap, MoleculeAgreement (HIGH/MOD/LOW), Pareto multi-objetivo não-dominado, 549 testes passando com 88,97% de branch coverage. |
+| 11 — Pose Consensus | Concluída | RMSD simetria-corrigido em `ChemistryService`, matriz de RMSD 3D, clustering Butina com extração exata de medóide, cálculo de estabilidade e concordância estrutural, 556 testes passando com 88,90% de branch coverage. |
+| 12 — Interaction Consensus | Concluída | InteractionPrevalence, matriz resíduo/tipo, perfis de interação por família de poses, conservação de interações-chave em denominadores de poses reais, 559 testes passando com 89,03% de branch coverage. |
+| 13 — Decision Engine | Concluída | DecisionProfile versionado, critérios tipados (exclusion/mandatory/rank/warning), motor determinístico de justificativas e recomendações de próxima evidência, 563 testes passando com 88,93% de branch coverage. |
+| 14 — GUI completa | Concluída | PySide6 MainWindow com sidebar e stacked views (Project, Import, Compounds 3-pane, Docking, Interactions, Dynamics, Decision, QC, Exports), 573 testes passando com 89,04% de branch coverage. |
+| 15 — Export + reproducibility | Concluída | ExportEngine, exportadores tabulares multi-formato (CSV, JSON, XLSX, Parquet), Methods Report em Markdown e manifestos criptográficos SHA-256 (`manifest.json`), 577 testes passando com 88,70% de branch coverage. |
+| 16 — Packaging e release | Concluída | Release builder `scripts/build_release.py`, CLI commands (`gui`, `probe`, `export`), builds Wheel e Sdist verificadas com `SHA256SUMS.txt`, 581 testes passando com 88,42% de branch coverage. |
+
+
 
 ## Último gate verificado
 

@@ -129,9 +129,7 @@ class _ImportBatchRow(Base):
     adapter_id: Mapped[str] = mapped_column(Text)
     adapter_version: Mapped[str] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(UtcTimestamp())
-    completed_at: Mapped[datetime | None] = mapped_column(
-        UtcTimestamp(), nullable=True
-    )
+    completed_at: Mapped[datetime | None] = mapped_column(UtcTimestamp(), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20),
         default="in_progress",

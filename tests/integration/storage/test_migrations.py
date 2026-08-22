@@ -186,9 +186,12 @@ def test_alembic_environment_rejects_missing_existing_connection() -> None:
     )
     script = ScriptDirectory.from_config(config)
     environment = Path("src/fidelichem/storage/migrations/env.py").resolve()
-    with EnvironmentContext(config, script), pytest.raises(
-        RuntimeError,
-        match="existing SQLAlchemy connection",
+    with (
+        EnvironmentContext(config, script),
+        pytest.raises(
+            RuntimeError,
+            match="existing SQLAlchemy connection",
+        ),
     ):
         runpy.run_path(str(environment), run_name="fidelichem_storage_env")
 
@@ -295,9 +298,7 @@ def test_direct_sql_rejects_second_project_and_immutable_artifact_audit_rows(
 
         with pytest.raises((IntegrityError, OperationalError)):
             connection.execute(
-                text(
-                    "UPDATE source_artifact SET path = 'changed' WHERE id = :id"
-                ),
+                text("UPDATE source_artifact SET path = 'changed' WHERE id = :id"),
                 {"id": ARTIFACT_ID},
             )
         with pytest.raises((IntegrityError, OperationalError)):
@@ -567,13 +568,13 @@ def test_direct_sql_accepts_canonical_nested_relative_path(
                 "mtime": "2026-01-01T00:00:00.000000Z",
             },
         )
-        assert connection.scalar(
-            text(
-                "SELECT relative_path FROM source_artifact "
-                "WHERE id = :id"
-            ),
-            {"id": "99999999-9999-4999-8999-999999999999"},
-        ) == "nested/input.sdf"
+        assert (
+            connection.scalar(
+                text("SELECT relative_path FROM source_artifact WHERE id = :id"),
+                {"id": "99999999-9999-4999-8999-999999999999"},
+            )
+            == "nested/input.sdf"
+        )
 
 
 def test_import_batch_immutable_fields_are_database_enforced(
@@ -584,9 +585,7 @@ def test_import_batch_immutable_fields_are_database_enforced(
         _insert_batch(connection)
         with pytest.raises((IntegrityError, OperationalError)):
             connection.execute(
-                text(
-                    "UPDATE import_batch SET adapter_id = 'other' WHERE id = :id"
-                ),
+                text("UPDATE import_batch SET adapter_id = 'other' WHERE id = :id"),
                 {"id": BATCH_ID},
             )
 

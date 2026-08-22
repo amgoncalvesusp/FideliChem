@@ -115,9 +115,7 @@ def test_conflicting_project_is_never_overwritten(tmp_path: Path) -> None:
         reopened.close()
 
 
-@pytest.mark.parametrize(
-    "stage", ["after_root", "after_directories", "after_manifest"]
-)
+@pytest.mark.parametrize("stage", ["after_root", "after_directories", "after_manifest"])
 def test_injected_failure_at_each_creation_boundary_is_bounded(
     tmp_path: Path,
     stage: str,
@@ -133,9 +131,7 @@ def test_injected_failure_at_each_creation_boundary_is_bounded(
 
     assert not (root / "project.json").exists()
     assert not (root / "project.fidelichem.sqlite").exists()
-    assert not any(
-        (root / directory).exists() for directory in ("artifacts", "cache")
-    )
+    assert not any((root / directory).exists() for directory in ("artifacts", "cache"))
 
 
 @pytest.mark.parametrize("bad_root", ["file", "nonempty"])

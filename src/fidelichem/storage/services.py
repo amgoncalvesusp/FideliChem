@@ -58,9 +58,7 @@ class StorageService:
         failpoint: Failpoint | None = None,
     ) -> ImportBatch:
         if batch.status is not ImportStatus.IN_PROGRESS:
-            raise InvalidStatusTransitionError(
-                "new import batches must be in progress"
-            )
+            raise InvalidStatusTransitionError("new import batches must be in progress")
         with UnitOfWork(self._session_factory) as uow:
             created = uow.import_batches.add(batch)
             self._trigger("before_audit", failpoint)
@@ -102,15 +100,12 @@ class StorageService:
                 and candidate.updated_at <= before.updated_at
             ):
                 candidate = candidate.model_copy(
-                    update={
-                        "updated_at": before.updated_at + timedelta(microseconds=1)
-                    }
+                    update={"updated_at": before.updated_at + timedelta(microseconds=1)}
                 )
             if not changed:
                 return uow.projects.update(
                     candidate,
-                    expected_updated_at=expected_updated_at
-                    or before.updated_at,
+                    expected_updated_at=expected_updated_at or before.updated_at,
                 )
             self._trigger("before_project_update", failpoint)
             updated = uow.projects.update(

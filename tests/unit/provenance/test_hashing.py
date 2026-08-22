@@ -6,8 +6,7 @@ from fidelichem.provenance.hashing import sha256_bytes, sha256_file
 def test_sha256_bytes_matches_known_vector() -> None:
     assert sha256_bytes(b"") == hashlib.sha256(b"").hexdigest()
     assert sha256_bytes(b"abc") == (
-        "ba7816bf8f01cfea414140de5dae2223"
-        "b00361a396177a9cb410ff61f20015ad"
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     )
 
 

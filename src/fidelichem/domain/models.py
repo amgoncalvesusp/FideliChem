@@ -135,6 +135,7 @@ class SourceArtifact(DomainModel):
     _path_not_blank = field_validator("path")(_non_blank)
     _file_type_not_blank = field_validator("file_type")(_non_blank)
 
+
 class AuditEvent(DomainModel):
     id: OpaqueId = Field(default_factory=new_id)
     sequence: int | None = Field(default=None, ge=0, strict=True)

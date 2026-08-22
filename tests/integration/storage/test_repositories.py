@@ -178,9 +178,7 @@ def test_project_repository_rejects_unvalidated_immutable_metadata_changes(
     project = _project()
     with UnitOfWork(migrated_engine) as uow:
         uow.projects.add(project)
-        invalid = project.model_copy(
-            update={"name": "Changed", "schema_version": True}
-        )
+        invalid = project.model_copy(update={"name": "Changed", "schema_version": True})
         with pytest.raises(InvalidProjectUpdateError):
             uow.projects.update(invalid)
 

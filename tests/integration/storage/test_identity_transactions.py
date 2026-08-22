@@ -149,9 +149,10 @@ def test_identity_uow_rolls_back_prior_chemistry_writes_after_fk_failure(
 def test_identity_uow_repositories_fail_closed_after_swallowed_conflict(
     migrated_engine: Engine,
 ) -> None:
-    with pytest.raises(UnitOfWorkError, match="failed"), UnitOfWork(
-        migrated_engine
-    ) as uow:
+    with (
+        pytest.raises(UnitOfWorkError, match="failed"),
+        UnitOfWork(migrated_engine) as uow,
+    ):
         project = _project()
         uow.projects.add(project)
         uow.compounds.add(_compound())
@@ -195,13 +196,16 @@ def test_two_session_alias_root_successor_races_have_one_typed_loser(
             ),
             {"batch": batch.id},
         )
-        assert connection.scalar(
-            text(
-                "SELECT count(*) FROM alias WHERE import_batch_id=:batch "
-                "AND source_system='pubchem' AND source_value='123'"
-            ),
-            {"batch": batch.id},
-        ) == 1
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM alias WHERE import_batch_id=:batch "
+                    "AND source_system='pubchem' AND source_value='123'"
+                ),
+                {"batch": batch.id},
+            )
+            == 1
+        )
 
     root_results = _run_repository_race(
         migrated_engine,
@@ -218,13 +222,13 @@ def test_two_session_alias_root_successor_races_have_one_typed_loser(
             ),
             {"alias": alias_id},
         )
-        assert connection.scalar(
-            text(
-                "SELECT count(*) FROM identity_resolution WHERE alias_id=:alias"
-            ),
-            {"alias": alias_id},
-        ) == 1
-
+        assert (
+            connection.scalar(
+                text("SELECT count(*) FROM identity_resolution WHERE alias_id=:alias"),
+                {"alias": alias_id},
+            )
+            == 1
+        )
 
     successor_results = _run_repository_race(
         migrated_engine,
@@ -237,13 +241,15 @@ def test_two_session_alias_root_successor_races_have_one_typed_loser(
     )
     assert sorted(successor_results) == ["conflict", "winner"]
     with migrated_engine.connect() as connection:
-        assert connection.scalar(
-            text(
-                "SELECT count(*) FROM identity_resolution "
-                "WHERE supersedes_id=:root"
-            ),
-            {"root": root_id},
-        ) == 1
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM identity_resolution WHERE supersedes_id=:root"
+                ),
+                {"root": root_id},
+            )
+            == 1
+        )
 
 
 def test_caller_owned_identity_failure_recovers_after_explicit_rollback(

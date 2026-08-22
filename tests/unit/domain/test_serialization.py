@@ -19,9 +19,10 @@ def test_canonical_json_sorts_keys_and_uses_compact_separators() -> None:
 
 
 def test_canonical_json_preserves_null_zero_false_and_empty_text() -> None:
-    assert canonical_json(
-        {"none": None, "zero": 0, "false": False, "empty": ""}
-    ) == '{"empty":"","false":false,"none":null,"zero":0}'
+    assert (
+        canonical_json({"none": None, "zero": 0, "false": False, "empty": ""})
+        == '{"empty":"","false":false,"none":null,"zero":0}'
+    )
 
 
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])

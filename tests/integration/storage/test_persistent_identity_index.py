@@ -427,8 +427,7 @@ def test_active_alias_order_is_compound_then_state_then_resolution(
         "gold", "ligand_17"
     )
     assert [
-        (candidate.compound_id, candidate.molecular_state_id)
-        for candidate in active
+        (candidate.compound_id, candidate.molecular_state_id) for candidate in active
     ] == [
         (second_compound_id, None),
         (COMPOUND_ID, STATE_A_ID),
@@ -469,9 +468,7 @@ def test_retraction_and_rolled_back_batch_hide_active_alias_not_catalog(
     assert index.catalog_by_parent_hash("a" * 64)[0].catalog_dormant is True
     assert all(
         row.catalog_dormant
-        for row in index.catalog_by_generated_inchikey(
-            "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
-        )
+        for row in index.catalog_by_generated_inchikey("LFQSCWFLJHTTHZ-UHFFFAOYSA-N")
     )
 
 
@@ -502,16 +499,13 @@ def test_rolled_back_batch_hides_active_projection_but_not_catalog(
     assert index.catalog_by_parent_hash("a" * 64)[0].catalog_dormant is True
     assert all(
         row.catalog_dormant
-        for row in index.catalog_by_generated_inchikey(
-            "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
-        )
+        for row in index.catalog_by_generated_inchikey("LFQSCWFLJHTTHZ-UHFFFAOYSA-N")
     )
 
 
 def test_index_public_surface_is_select_only() -> None:
     source = (
-        Path(__file__).resolve().parents[3]
-        / "src/fidelichem/storage/identity_index.py"
+        Path(__file__).resolve().parents[3] / "src/fidelichem/storage/identity_index.py"
     )
     tree = ast.parse(source.read_text(encoding="utf-8"))
     index_class = next(
@@ -854,9 +848,7 @@ def test_deep_retracted_chain_corruption_is_safe_in_active_and_catalog(
 
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         connection.execute(
             text(
                 "INSERT INTO identity_resolution "
@@ -904,9 +896,7 @@ def test_retracted_only_corruption_is_not_hidden_by_active_filter(
         )
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         connection.execute(
             text(
                 "INSERT INTO identity_resolution "
@@ -945,9 +935,7 @@ def test_corrupt_root_is_found_through_full_predecessor_chain(
         uow.aliases.add(_alias(batch.id))
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         for row in (
             {
                 "id": ROOT_ID,
@@ -1018,9 +1006,7 @@ def test_successor_with_missing_alias_is_not_invisible(
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA foreign_keys=OFF"))
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         connection.execute(
             text(
                 "INSERT INTO identity_resolution "
@@ -1068,9 +1054,7 @@ def test_successor_with_missing_batch_is_not_invisible(
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA foreign_keys=OFF"))
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         connection.execute(
             text(
                 "INSERT INTO alias "
@@ -1128,9 +1112,7 @@ def test_missing_predecessor_is_safe_in_active_and_catalog(
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA foreign_keys=OFF"))
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         connection.execute(
             text(
                 "INSERT INTO identity_resolution "
@@ -1176,9 +1158,7 @@ def test_cycle_in_resolution_chain_is_safe_in_active_and_catalog(
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA foreign_keys=OFF"))
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         for row_id, predecessor in (
             (first_id, second_id),
             (second_id, first_id),
@@ -1238,9 +1218,7 @@ def test_cross_alias_successor_is_safe_in_active_and_catalog(
         uow.identity_resolutions.add(_resolution())
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         connection.execute(
             text(
                 "INSERT INTO identity_resolution "
@@ -1286,9 +1264,7 @@ def test_forked_successors_are_safe_in_active_and_catalog(
         uow.identity_resolutions.add(_resolution())
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         table_sql = connection.execute(
             text(
                 "SELECT sql FROM sqlite_master "
@@ -1369,9 +1345,7 @@ def test_missing_compound_target_is_safe_in_active_projection(
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA foreign_keys=OFF"))
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         connection.execute(
             text(
                 "INSERT INTO identity_resolution "
@@ -1420,9 +1394,7 @@ def test_missing_state_target_is_safe_in_active_projection(
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA foreign_keys=OFF"))
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         connection.execute(
             text(
                 "INSERT INTO identity_resolution "
@@ -1488,9 +1460,7 @@ def test_ownership_mismatch_is_safe_in_active_projection(
     with migrated_engine.connect() as connection:
         connection.execute(text("PRAGMA foreign_keys=OFF"))
         connection.execute(text("PRAGMA ignore_check_constraints=ON"))
-        connection.execute(
-            text("DROP TRIGGER trg_identity_resolution_validate_insert")
-        )
+        connection.execute(text("DROP TRIGGER trg_identity_resolution_validate_insert"))
         connection.execute(
             text(
                 "INSERT INTO identity_resolution "
