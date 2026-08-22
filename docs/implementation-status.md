@@ -8,8 +8,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: pausa solicitada após a conclusão da Task 7
-- Próxima ação exata: iniciar por TDD a Task 8 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir do checkpoint atual, somente quando solicitado.
+- Etapa ativa: **Task 8 concluída localmente; aguardando review Terra final da Fase 2**
+- Próxima ação exata: executar a review Terra xhigh da Fase 2 sobre o diff
+  completo; somente após GO iniciar a exploração da Fase 3.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -18,7 +19,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–7 concluídas; Task 8 (workflow/ADRs/gate integral) ainda não iniciada. |
+| 2 — Chemistry + Identity Resolver | Em andamento — review final pendente | Tasks 1–8 concluídas localmente; falta apenas a review Terra final antes do checkpoint de exploração da Fase 3. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -311,6 +312,39 @@ Task 7 da Fase 2, gate final em 2026-08-22:
 - Gate: Ruff, mypy, lock, pip-audit, build, pip check e diff check aprovados;
   review Terra final GO sem Critical, Important ou Minor.
 - Continuidade: Task 8 não foi iniciada por solicitação do usuário.
+
+### Task 8 — workflow de projeto, ADRs e gate de integração
+
+- Estado: concluída localmente; review Terra final da Fase 2 ainda pendente.
+- Entregue: `tests/integration/identity/test_phase2_workflow.py`, ADRs 0002 e
+  0005, atualização de README/CHANGELOG e este checkpoint.
+- Workflow demonstrado: projeto realmente vazio, batch ativo, sal/retenção
+  de mapas, `NEW_COMPOUND`, reopen com `EXACT_STATE`, `NEW_STATE` no mesmo
+  parent, InChI nullable com warning no audit, alias-only sem nova linha de
+  catálogo, claims resolver-only, autoridade de seleção, co-crystal e
+  tautomer incompleto sem writes, conflito com seleção inválida sem writes,
+  cadeia reassign/retract/restore/retract, reopen com alias oculto e catálogo
+  dormente reutilizável após rollback pelo `StorageService`.
+- Evidência: teste focado `1 passed`; suíte completa `454 passed` em 38,55 s;
+  gate de cobertura por branches `88,65%` global (2083 statements, 490
+  branches), acima do mínimo de 80%.
+- Gate global: `uv lock --check`, Ruff, mypy (`40` arquivos), `pip-audit`
+  (nenhuma vulnerabilidade conhecida; pacote local não publicado), `uv build`,
+  `uv pip check` e `git diff --check` aprovados.
+- Runtime: `rdkit=2026.03.4` (versão semântica `(2026, 3, 4)` validada pelo
+  serviço; dependência travada em `rdkit==2026.3.4`); `inchi=1.07.3`.
+- Migrations/SQLite: histórico linear
+  `0001_initial_storage -> 0002_chemistry_identity`, head
+  `0002_chemistry_identity`; `PRAGMA integrity_check` retornou `ok` e
+  `PRAGMA foreign_key_check` retornou `[]` em banco migrado limpo.
+- Política de conflito: o resolver não faz merge silencioso; uma confirmação
+  humana de `CONFLICT` continua possível somente com target report-listed e
+  rationale. O workflow cobre a rejeição de seleção não autorizada antes da
+  UoW, sem alterar o contrato de override humano.
+- Próxima ação: review Terra xhigh final sobre ciência de hashes/maps,
+  policy/versionamento, salts/co-crystals, InChI, migrations/concorrência,
+  projeções, autoridade, restore, auditoria e lacunas de testes; após GO,
+  iniciar a exploração da Fase 3.
 
 ## Convenções de continuidade
 

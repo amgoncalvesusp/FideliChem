@@ -53,5 +53,23 @@ Project creation writes a canonical UTF-8 `project.json`, migrates
 and `logs/`. Existing project roots are never overwritten; read-only opening
 uses SQLite's `mode=ro` connection.
 
+## Chemistry identity (Phase 2)
+
+The chemistry boundary uses RDKit 2026.3.4 and a versioned, bounded policy.
+`Compound` records a parent family while `MolecularState` preserves the exact
+map-cleared state, including stereo, charge, tautomer, and disconnected
+components. One-organic salts are supported; co-crystals and other
+multi-organic structures require explicit future policy. Optional InChIKey
+evidence is nullable and warnings are included in the same audit event as an
+identity confirmation.
+
+Identity resolution is read-only until an explicit report-authorized
+confirmation. Structural catalog rows remain reusable after alias retraction
+or import rollback, while inactive alias projections are hidden. Ambiguous or
+conflicting evidence is never silently merged. See
+[`docs/decisions/0002-compound-vs-state.md`](docs/decisions/0002-compound-vs-state.md)
+and [`docs/decisions/0005-identity-resolution.md`](docs/decisions/0005-identity-resolution.md)
+for the frozen boundaries and non-goals.
+
 The full product architecture and phased roadmap are documented in
 `FideliChem_PLANO_CODEX.md`.
