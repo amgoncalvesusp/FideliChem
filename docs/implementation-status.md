@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: Task 3 — schema `0002` de identidade química
-- Próxima ação exata: implementar por TDD a Task 3 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `fc844c3`.
+- Etapa ativa: Task 4 — repositories transacionais de identidade
+- Próxima ação exata: implementar por TDD a Task 4 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `addb926`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -18,7 +18,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–2 concluídas; Task 3 (schema/migration) é o próximo marco. |
+| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–3 concluídas; Task 4 (repositories/UoW) é o próximo marco. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -209,6 +209,20 @@ Fase 1, gate final em 2026-08-20:
 - Concorrência: `RLock` cobre `rdBase.BlockLogs`; 48 canonicalizações em oito
   workers concluíram sem deadlock nem vazamento de sentinel.
 - Gate completo e review final sem Critical/Important/Minor.
+
+### Task 3 — schema `0002` de identidade química
+
+- Estado: concluída e aprovada após hardening de boundary e matriz SQL isolada.
+- Commits: `30de84e` (schema), `eed3ddc` (checks SQLite), `64af50b`
+  (matriz de regressão) e `addb926` (isolamento de constraints).
+- Resultado: 321 testes completos; cobertura global de branches 89,90%.
+- Entregue: upgrade populado `0001→0002`, quatro tabelas append-only, FKs
+  RESTRICT, hashes/proveniência, aliases naturais únicos, raiz/sucessor únicos,
+  transições reversíveis e ownership de estado protegidos no banco.
+- Boundary: whitespace Unicode equivalente a `str.strip`, NUL/bounds, ator e
+  rationale sem tri-state, massa finita e `INSERT OR REPLACE` bloqueado.
+- Concorrência: races de alias/root/successor com um vencedor e nenhum fork;
+  review final GO sem findings remanescentes.
 
 ## Convenções de continuidade
 
