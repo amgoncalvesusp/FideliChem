@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-12-interaction-consensus`
-- Base integrada: `feat/phase-11-pose-consensus`
-- Última fase concluída: **Fase 12 — Interaction Consensus**
-- Etapa ativa: nenhuma; Fase 12 concluída com sucesso.
-- Próxima ação exata: iniciar a Fase 13 — Decision Engine.
+- Branch de execução: `feat/phase-13-decision-engine`
+- Base integrada: `feat/phase-12-interaction-consensus`
+- Última fase concluída: **Fase 13 — Decision Engine**
+- Etapa ativa: nenhuma; Fase 13 concluída com sucesso.
+- Próxima ação exata: iniciar a Fase 14 — GUI Completa.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -29,11 +29,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 10 — Analytics Engine | Concluída | Score consensus (mediana/média ponderada/dispersão), correlações Spearman/Kendall e top-k overlap, MoleculeAgreement (HIGH/MOD/LOW), Pareto multi-objetivo não-dominado, 549 testes passando com 88,97% de branch coverage. |
 | 11 — Pose Consensus | Concluída | RMSD simetria-corrigido em `ChemistryService`, matriz de RMSD 3D, clustering Butina com extração exata de medóide, cálculo de estabilidade e concordância estrutural, 556 testes passando com 88,90% de branch coverage. |
 | 12 — Interaction Consensus | Concluída | InteractionPrevalence, matriz resíduo/tipo, perfis de interação por família de poses, conservação de interações-chave em denominadores de poses reais, 559 testes passando com 89,03% de branch coverage. |
-| 13 — Decision Engine | Pendente | Próxima fase; iniciar especificação e implementação. |
+| 13 — Decision Engine | Concluída | DecisionProfile versionado, critérios tipados (exclusion/mandatory/rank/warning), motor determinístico de justificativas e recomendações de próxima evidência, 563 testes passando com 88,93% de branch coverage. |
+| 14 — GUI completa | Pendente | Próxima fase; iniciar especificação e implementação. |
 
-
-
-| 14 — GUI completa | Pendente | Aguardar gate Terra da Fase 13. |
 | 15 — Export + reproducibility | Pendente | Aguardar gate Terra da Fase 14. |
 | 16 — Packaging e release | Pendente | Aguardar gate Terra da Fase 15. |
 

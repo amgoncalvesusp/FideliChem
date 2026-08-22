@@ -55,6 +55,11 @@ All notable changes to FideliChem will be documented in this file.
 - Residue-by-interaction-type cross-tabulation matrix generation across campaign candidates.
 - Pose family interaction profiling (`PoseFamilyInteractionProfile`) characterizing conserved vs cluster-specific binding interactions.
 - Core interaction conservation analysis (`compute_interaction_consensus`) identifying critical active-site anchoring contacts.
+- Versioned Decision Profile domain schema (`DecisionProfile`, `DecisionCriterion`) with typed criteria roles (`exclusion`, `mandatory`, `rank`, `warning`, `informative`).
+- Multi-fidelity candidate evaluation engine (`evaluate_compound_decision`, `evaluate_campaign_decisions`) computing composite scores and triage priorities (`ADVANCE`, `HOLD`, `REJECT`, `INSUFFICIENT_DATA`).
+- Transparent justification generation providing structured `why_positive`, `why_negative`, and warnings for every evaluated molecule.
+- Next Best Evidence recommendation engine directing targeted follow-up calculations (MD simulations, interaction profiling, secondary docking) for held candidates.
+
 
 
 
