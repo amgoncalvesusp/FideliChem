@@ -36,6 +36,10 @@ All notable changes to FideliChem will be documented in this file.
 - SMILES2Select Evidence Adapter (`Smiles2SelectAdapter`) parsing compound selection campaigns from SQLite, JSON, and CSV with selection decisions, QED, SA score, and physicochemical properties.
 - SMILES2Docking Evidence Adapter (`Smiles2DockingAdapter`) parsing 3D ligand preparation runs, target pH protonation states, energy minimization methods, and structural artifact links.
 - Cross-evidence identity resolution pipeline enabling continuous tracking from selection filtering through ligand preparation to docking poses under a unified chemical compound identity.
+- InteractionRecord domain model for mechanistic interactions with standard (`target|residue|type`) and granular (`target|residue|type|feature`) interaction keys.
+- DockLens Evidence Adapter (`DockLensAdapter`) parsing mechanistic contacts, distances, angles, occupancies/frequencies, and scientific interaction profiles from JSON and CSV.
+- Mechanistic interaction linkage associating DockLens contacts directly to docking poses (e.g. GOLD Pose P003) and MD trajectories.
+
 
 
 

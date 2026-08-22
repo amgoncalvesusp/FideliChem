@@ -6,6 +6,7 @@ from .base import (
     compute_source_artifacts,
     scan_source_files,
 )
+from .docklens import DockLensAdapter
 from .fake import FakeAdapter
 from .gold import GoldAdapter
 from .registry import AdapterRegistry
@@ -15,6 +16,7 @@ from .table import UniversalTableAdapter
 
 __all__ = [
     "AdapterRegistry",
+    "DockLensAdapter",
     "EvidenceAdapter",
     "FakeAdapter",
     "GoldAdapter",
