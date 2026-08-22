@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: concluir o hardening do design/plano executável da Fase 2
-- Próxima ação exata: finalizar as alterações não commitadas nos dois documentos da Fase 2, submeter novo review Terra e somente após GO gerar o brief da Task 1.
+- Etapa ativa: Task 1 — dependências e modelos químicos imutáveis
+- Próxima ação exata: gerar o brief da Task 1 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` e iniciar TDD a partir de `fc84910`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -18,7 +18,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento | Spec/plano em hardening após primeiro review científico NO-GO; implementação ainda não iniciada. |
+| 2 — Chemistry + Identity Resolver | Em andamento | Design/plano aprovados após três rounds de hardening; Task 1 é o próximo marco. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -170,6 +170,19 @@ Fase 1, gate final em 2026-08-20:
 - Próximo passo exato: terminar o plano, verificar consistência/placeholder,
   commitá-lo como `docs: harden phase two identity design`, re-review Terra e
   só então iniciar implementação TDD.
+
+### Gate de design da Fase 2
+
+- Estado: **GO**; zero findings Critical, Important ou Minor no review final.
+- Commits: `e34f0ac` (plano inicial), `9a1a170` (hardening científico),
+  `9f1e4a2` (workflow completo) e `fc84910` (contratos finais).
+- Decisões congeladas: `rdkit==2026.3.4`; estado exato preservado; chave-pai
+  versionada e limitada; atom maps removidos apenas da cópia de identidade;
+  InChI opcional; catálogo estrutural permanente separado de aliases ativos;
+  resoluções append-only reversíveis; constraints concorrentes; confirmação
+  atômica e auditada; nenhuma fusão silenciosa.
+- Próximo marco: Task 1 — pin de dependências e valores públicos congelados,
+  sempre por RED-GREEN-REFACTOR e review independente.
 
 ## Convenções de continuidade
 
