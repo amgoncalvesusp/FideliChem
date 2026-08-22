@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-10-analytics-engine`
-- Base integrada: `feat/phase-9-moldynstudio-gromacs`
-- Última fase concluída: **Fase 10 — Analytics Engine**
-- Etapa ativa: nenhuma; Fase 10 concluída com sucesso.
-- Próxima ação exata: iniciar a Fase 11 — Pose Consensus.
+- Branch de execução: `feat/phase-11-pose-consensus`
+- Base integrada: `feat/phase-10-analytics-engine`
+- Última fase concluída: **Fase 11 — Pose Consensus**
+- Etapa ativa: nenhuma; Fase 11 concluída com sucesso.
+- Próxima ação exata: iniciar a Fase 12 — Interaction Consensus.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -27,8 +27,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 8 — DockLens | Concluída | InteractionRecord domain model, standard/granular interaction keys (target|residue|type|feature), DockLensAdapter (JSON/CSV), GOLD Pose P003 interaction association, 534 testes passando com 88,51% de branch coverage. |
 | 9 — MolDynStudio + GROMACS | Concluída | MDRunRecord, MDMetricRecord, GROMACS multi-series XVG parser com extração de estatísticas resumo, GromacsAdapter, MolDynStudioAdapter, 541 testes passando com 88,68% de branch coverage. |
 | 10 — Analytics Engine | Concluída | Score consensus (mediana/média ponderada/dispersão), correlações Spearman/Kendall e top-k overlap, MoleculeAgreement (HIGH/MOD/LOW), Pareto multi-objetivo não-dominado, 549 testes passando com 88,97% de branch coverage. |
-| 11 — Pose Consensus | Pendente | Próxima fase; iniciar especificação e implementação. |
-| 12 — Interaction Consensus | Pendente | Aguardar gate Terra da Fase 11. |
+| 11 — Pose Consensus | Concluída | RMSD simetria-corrigido em `ChemistryService`, matriz de RMSD 3D, clustering Butina com extração exata de medóide, cálculo de estabilidade e concordância estrutural, 556 testes passando com 88,90% de branch coverage. |
+| 12 — Interaction Consensus | Pendente | Próxima fase; iniciar especificação e implementação. |
+
 | 13 — Decision Engine | Pendente | Aguardar gate Terra da Fase 12. |
 
 

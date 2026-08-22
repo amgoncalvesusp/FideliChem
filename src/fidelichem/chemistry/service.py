@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import math
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -40,6 +41,8 @@ Descriptors: Any = import_module("rdkit.Chem.Descriptors")
 inchi: Any = import_module("rdkit.Chem.inchi")
 rdMolStandardize: Any = import_module("rdkit.Chem.MolStandardize.rdMolStandardize")
 rdMolDescriptors = import_module("rdkit.Chem.rdMolDescriptors")
+rdMolAlign: Any = import_module("rdkit.Chem.rdMolAlign")
+
 
 _EXPECTED_RDKIT_VERSION = (2026, 3, 4)
 _MAX_SOURCE_CODEPOINTS = 10_000
@@ -336,6 +339,94 @@ class ChemistryService:
                 )
             )
         return state_key, parent_key, warnings
+
+    def calculate_pose_rmsd(
+        self,
+        ref_block: str,
+        probe_block: str,
+        *,
+        align: bool = False,
+        heavy_atoms_only: bool = True,
+    ) -> float:
+        """Calculate symmetry-corrected RMSD between 3D poses."""
+        ref_mol = self._parse_3d_mol(ref_block)
+        probe_mol = self._parse_3d_mol(probe_block)
+
+        if heavy_atoms_only:
+            ref_mol = Chem.RemoveHs(ref_mol)
+            probe_mol = Chem.RemoveHs(probe_mol)
+
+        if ref_mol.GetNumAtoms() != probe_mol.GetNumAtoms():
+            raise InvalidStructureError()
+
+        if align:
+            with _quiet_rdkit():
+                return float(rdMolAlign.GetBestRMS(probe_mol, ref_mol))
+
+        # In-pocket symmetry-corrected RMSD (preserving coordinate frame)
+        with _quiet_rdkit():
+            matches = probe_mol.GetSubstructMatches(probe_mol, uniquify=False)
+            if not matches:
+                matches = [tuple(range(probe_mol.GetNumAtoms()))]
+
+            ref_conf = ref_mol.GetConformer()
+            probe_conf = probe_mol.GetConformer()
+            num_atoms = ref_mol.GetNumAtoms()
+
+            min_rmsd = float("inf")
+            for match in matches:
+                sq_dist_sum = 0.0
+                for i, j in enumerate(match):
+                    p1 = ref_conf.GetAtomPosition(i)
+                    p2 = probe_conf.GetAtomPosition(j)
+                    sq_dist_sum += (
+                        (p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2 + (p1.z - p2.z) ** 2
+                    )
+                rmsd = math.sqrt(sq_dist_sum / num_atoms)
+                if rmsd < min_rmsd:
+                    min_rmsd = rmsd
+
+            return float(min_rmsd)
+
+    def calculate_pose_rmsd_matrix(
+        self,
+        pose_blocks: Mapping[str, str],
+        *,
+        align: bool = False,
+        heavy_atoms_only: bool = True,
+    ) -> dict[str, dict[str, float]]:
+        """Compute pairwise symmetric RMSD matrix across 3D pose blocks."""
+        pose_keys = list(pose_blocks.keys())
+        matrix: dict[str, dict[str, float]] = {k: {} for k in pose_keys}
+
+        for i, k1 in enumerate(pose_keys):
+            matrix[k1][k1] = 0.0
+            for j in range(i + 1, len(pose_keys)):
+                k2 = pose_keys[j]
+                rmsd = self.calculate_pose_rmsd(
+                    pose_blocks[k1],
+                    pose_blocks[k2],
+                    align=align,
+                    heavy_atoms_only=heavy_atoms_only,
+                )
+                matrix[k1][k2] = rmsd
+                matrix[k2][k1] = rmsd
+
+        return matrix
+
+    @staticmethod
+    def _parse_3d_mol(block: str) -> Any:
+        if not isinstance(block, str) or not block.strip():
+            raise InvalidStructureError()
+        with _quiet_rdkit():
+            mol = Chem.MolFromMolBlock(block, sanitize=True, removeHs=False)
+            if mol is None:
+                mol = Chem.MolFromMol2Block(block, sanitize=True, removeHs=False)
+            if mol is None:
+                mol = Chem.MolFromPDBBlock(block, sanitize=True, removeHs=False)
+            if mol is None or mol.GetNumConformers() == 0:
+                raise InvalidStructureError()
+            return mol
 
 
 __all__ = ["ChemistryService"]

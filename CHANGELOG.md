@@ -47,6 +47,11 @@ All notable changes to FideliChem will be documented in this file.
 - Scoring agreement metrics (`compute_molecule_agreement`, `compute_campaign_agreement`) calculating Spearman and Kendall rank correlations, top-k Jaccard overlap, and per-candidate agreement levels (HIGH, MODERATE, LOW).
 - Multi-objective Pareto optimization (`compute_pareto_fronts`) executing fast non-dominated sorting across multi-dimensional criteria with strict directionality and non-destructive missing data handling.
 - Unified `AnalyticsEngine` facade coordinating multi-fidelity scoring, agreement, and Pareto analytics.
+- Symmetry-corrected in-situ and aligned 3D pose RMSD calculation in `ChemistryService` via topological automorphism matching.
+- Pairwise 3D pose RMSD matrix generation across multi-conformer and docking solution sets.
+- Butina-based structural pose clustering (`cluster_poses`) with exact centroid medoid determination minimizing intra-cluster RMSD distance.
+- Structural pose consensus evaluation (`compute_pose_consensus`) determining dominant binding mode families, stability scores, and agreement levels.
+
 
 
 
