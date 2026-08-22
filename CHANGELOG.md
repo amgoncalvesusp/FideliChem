@@ -17,6 +17,12 @@ All notable changes to FideliChem will be documented in this file.
 - Persistent catalog/active-alias identity projections, report-authorized
   atomic confirmations, batch-correlated audit events, and reversible
   reassign/retract/restore chains.
+- Pure EvidenceAdapter SDK protocol, AdapterRegistry with discovery and confidence ranking.
+- Immutable adapter domain models (DetectionReport, ImportPlan, QCIssue, ValidationReport, RawCompoundRecord, TargetRecord, DockingRunRecord, PoseRecord, ScoreObservationRecord, ImportBundle, ImportResult).
+- DuplicateImportDetector enforcing deduplication on completed project batches while permitting re-import after rollback/failure.
+- ImportManager orchestrating discovery, validation, chemical identity confirmation, and atomic persistence.
+- Fake reference adapter and end-to-end acceptance pipeline test suite.
+
 
 ### Changed
 

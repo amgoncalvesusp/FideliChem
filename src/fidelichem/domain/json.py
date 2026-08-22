@@ -30,9 +30,7 @@ def canonicalize_json_text(value: str) -> str:
     """Parse JSON text and return its canonical representation."""
 
     def reject_constant(constant: str) -> Any:
-        raise InvalidJsonError(
-            f"non-finite JSON constant is not allowed: {constant}"
-        )
+        raise InvalidJsonError(f"non-finite JSON constant is not allowed: {constant}")
 
     def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}

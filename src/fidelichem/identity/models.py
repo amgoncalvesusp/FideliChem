@@ -97,9 +97,7 @@ class ResolutionReport(DomainModel):
 
     @field_validator("candidates", mode="before")
     @classmethod
-    def _sort_candidates(
-        cls, value: object
-    ) -> tuple[ResolutionCandidate, ...]:
+    def _sort_candidates(cls, value: object) -> tuple[ResolutionCandidate, ...]:
         items = cast(Iterable[Any], value) if value is not None else ()
         candidates = tuple(
             item

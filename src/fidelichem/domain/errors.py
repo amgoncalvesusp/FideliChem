@@ -117,3 +117,27 @@ class IdentityResolutionConflictError(IdentityError):
 
     code = "IDENTITY_RESOLUTION_CONFLICT"
     public_message = "identity resolution conflicts with the existing chain"
+
+
+class AdapterError(DomainError):
+    """Base class for adapter-related errors."""
+
+
+class AdapterNotFoundError(AdapterError):
+    """An adapter with the specified identifier is not registered."""
+
+
+class AdapterExecutionError(AdapterError):
+    """An adapter crashed or failed unexpectedly during execution."""
+
+
+class ImportError(DomainError):
+    """Base class for import-related errors."""
+
+
+class DuplicateImportError(ImportError):
+    """A batch with identical inputs has already been imported into the project."""
+
+
+class ImportValidationError(ImportError):
+    """An import bundle failed domain or adapter validation."""

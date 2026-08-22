@@ -117,8 +117,9 @@ def test_unit_of_work_enter_sqlalchemy_failure_is_safe(migrated_engine) -> None:
     def failing_factory() -> Session:
         return FailingBeginSession(bind=factory.kw["bind"])
 
-    with pytest.raises(UnitOfWorkError, match="begin storage"), UnitOfWork(
-        failing_factory
+    with (
+        pytest.raises(UnitOfWorkError, match="begin storage"),
+        UnitOfWork(failing_factory),
     ):
         pass
 
@@ -131,8 +132,9 @@ def test_unit_of_work_enter_non_sqlalchemy_failure_is_preserved(
     def failing_factory() -> Session:
         raise RuntimeError("factory failure")
 
-    with pytest.raises(RuntimeError, match="factory failure"), UnitOfWork(
-        failing_factory
+    with (
+        pytest.raises(RuntimeError, match="factory failure"),
+        UnitOfWork(failing_factory),
     ):
         pass
 
@@ -147,8 +149,9 @@ def test_unit_of_work_commit_sqlalchemy_failure_is_safe(migrated_engine) -> None
     def failing_factory() -> Session:
         return FailingCommitSession(bind=factory.kw["bind"])
 
-    with pytest.raises(UnitOfWorkError, match="commit storage"), UnitOfWork(
-        failing_factory
+    with (
+        pytest.raises(UnitOfWorkError, match="commit storage"),
+        UnitOfWork(failing_factory),
     ):
         pass
 
@@ -190,9 +193,7 @@ def test_unit_of_work_stays_failed_after_explicit_inner_rollback(
     factory = create_session_factory(migrated_engine)
     with pytest.raises(UnitOfWorkError, match="failed"), UnitOfWork(factory) as uow:
         with suppress(ForeignKeyViolationError):
-            uow.import_batches.add(
-                _batch("00000000-0000-4000-8000-000000000000")
-            )
+            uow.import_batches.add(_batch("00000000-0000-4000-8000-000000000000"))
         uow.session.rollback()
         with pytest.raises(UnitOfWorkError, match="failed"):
             uow.projects.get()

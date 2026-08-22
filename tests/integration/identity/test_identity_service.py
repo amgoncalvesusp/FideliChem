@@ -220,9 +220,7 @@ class _InterposingIndex:
         return values
 
 
-def _interposed_service(
-    engine: Engine, mutate: Callable[[], None]
-) -> IdentityService:
+def _interposed_service(engine: Engine, mutate: Callable[[], None]) -> IdentityService:
     calls = 0
 
     def make_index():
@@ -332,9 +330,7 @@ def test_confirm_rejects_stale_report_before_opening_uow_and_calls_live_index(
     )
     uow_calls: list[int] = []
     index_calls: list[int] = []
-    stale = _service(
-        migrated_engine, factory_calls=uow_calls, index_calls=index_calls
-    )
+    stale = _service(migrated_engine, factory_calls=uow_calls, index_calls=index_calls)
     with pytest.raises(ValueError, match="stale"):
         stale.confirm_claim(
             _result(),
@@ -388,9 +384,7 @@ def test_confirm_revalidates_after_interposed_write_without_extra_rows(
     label: str,
 ) -> None:
     _seed_project_batch(migrated_engine)
-    service = _interposed_service(
-        migrated_engine, lambda: mutator(migrated_engine)
-    )
+    service = _interposed_service(migrated_engine, lambda: mutator(migrated_engine))
     if label == "alias":
         with pytest.raises(ValueError, match="stale"):
             service.confirm_claim(

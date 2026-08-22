@@ -39,9 +39,7 @@ def test_canonicalization_preserves_source_and_canonicalizes_equivalent_smiles(
 
 def test_atom_maps_are_not_identity(service: ChemistryService) -> None:
     unmapped = service.canonicalize("CCO", created_at=NOW)
-    mapped = service.canonicalize(
-        "[CH3:7][CH2:2][OH:99]", created_at=NOW
-    )
+    mapped = service.canonicalize("[CH3:7][CH2:2][OH:99]", created_at=NOW)
 
     assert mapped.molecular_state.state_hash == unmapped.molecular_state.state_hash
     assert mapped.compound.structure_hash == unmapped.compound.structure_hash
@@ -256,9 +254,9 @@ def test_rdkit_state_derivation_failures_are_safe(
     import fidelichem.chemistry.service as service_module
 
     monkeypatch.setattr(
-        service_module.Chem, target, lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("raw diagnostic")
-        ),
+        service_module.Chem,
+        target,
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("raw diagnostic")),
     )
     with pytest.raises(ChemistryError) as raised:
         service.canonicalize("CCO", created_at=NOW)
@@ -276,9 +274,9 @@ def test_rdkit_formula_and_mass_failures_are_safe(
     module = getattr(service_module, module_name)
     target = "CalcMolFormula" if module_name == "rdMolDescriptors" else "MolWt"
     monkeypatch.setattr(
-        module, target, lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("raw diagnostic")
-        ),
+        module,
+        target,
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("raw diagnostic")),
     )
     with pytest.raises(ChemistryError) as raised:
         service.canonicalize("CCO", created_at=NOW)

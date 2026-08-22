@@ -34,6 +34,7 @@ def migrated_engine(tmp_path: Path) -> Iterator[Engine]:
     finally:
         engine.dispose()
 
+
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=UTC)
 PROJECT_ID = "11111111-1111-4111-8111-111111111111"
 COMPOUND_ID = "22222222-2222-4222-8222-222222222222"
@@ -374,8 +375,7 @@ def test_distinct_state_signatures_are_coherent_and_resolver_usable(
     )
     assert report.kind is ResolutionKind.EXACT_STATE
     assert any(
-        candidate.molecular_state_id == STATE_B_ID
-        for candidate in report.candidates
+        candidate.molecular_state_id == STATE_B_ID for candidate in report.candidates
     )
 
 

@@ -152,9 +152,7 @@ class IdentityResolver:
         state_candidates = index.catalog_by_state_hash(
             result.molecular_state.state_hash
         )
-        parent_candidates = index.catalog_by_parent_hash(
-            result.compound.structure_hash
-        )
+        parent_candidates = index.catalog_by_parent_hash(result.compound.structure_hash)
         generated_inchi_candidates = self._inchi_candidates_for_result(
             result, index, excluded_key=claim.inchikey
         )

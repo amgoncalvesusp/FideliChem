@@ -67,9 +67,7 @@ class PersistentIdentityIndex:
         with self._session_factory() as session:
             return operation(session)
 
-    def catalog_by_state_hash(
-        self, state_hash: str
-    ) -> tuple[ResolutionCandidate, ...]:
+    def catalog_by_state_hash(self, state_hash: str) -> tuple[ResolutionCandidate, ...]:
         def query(session: Session) -> tuple[ResolutionCandidate, ...]:
             statement = (
                 select(_MolecularStateRow, _CompoundRow)
@@ -136,9 +134,7 @@ class PersistentIdentityIndex:
             )
             return _safe_read(
                 "compound",
-                lambda: _inchi_candidates(
-                    session, compound_statement, state_statement
-                ),
+                lambda: _inchi_candidates(session, compound_statement, state_statement),
             )
 
         return self._read(query)
@@ -168,8 +164,7 @@ class PersistentIdentityIndex:
                 )
                 .outerjoin(
                     _MolecularStateRow,
-                    _MolecularStateRow.id
-                    == _IdentityResolutionRow.molecular_state_id,
+                    _MolecularStateRow.id == _IdentityResolutionRow.molecular_state_id,
                 )
                 .where(
                     _AliasRow.source_system == source_system,
@@ -303,9 +298,7 @@ def _successors(
     successors = []
     for successor, alias, batch in session.execute(statement).tuples().all():
         if alias is None or batch is None:
-            raise CorruptStoredDataError(
-                "stored identity resolution data is invalid"
-            )
+            raise CorruptStoredDataError("stored identity resolution data is invalid")
         _validated_alias(alias, batch)
         successors.append((successor, batch))
     return tuple(successors)
@@ -406,9 +399,7 @@ def _validate_successor_tree(
     for successor, successor_batch in successors:
         if successor.alias_id != row.alias_id:
             raise CorruptStoredDataError("stored identity resolution data is invalid")
-        _validate_successor_tree(
-            session, successor, successor_batch, visiting, visited
-        )
+        _validate_successor_tree(session, successor, successor_batch, visiting, visited)
     visiting.remove(row.id)
     visited.add(row.id)
 
@@ -420,9 +411,7 @@ def _validate_chain_node(
     visiting: set[str],
     visited: set[str],
 ) -> None:
-    root, root_batch = _find_chain_root(
-        session, row, batch, visiting, visited
-    )
+    root, root_batch = _find_chain_root(session, row, batch, visiting, visited)
     _validate_successor_tree(session, root, root_batch, set(), set())
 
 

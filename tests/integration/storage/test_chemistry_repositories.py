@@ -215,9 +215,10 @@ def test_identity_primary_key_and_other_check_have_exact_public_types(
     second_alias = alias.model_copy(update={"id": ALIAS_2_ID, "source_value": "456"})
     with UnitOfWork(migrated_engine) as uow:
         uow.aliases.add(second_alias)
-    with pytest.raises(DuplicateRecordError) as duplicate, UnitOfWork(
-        migrated_engine
-    ) as uow:
+    with (
+        pytest.raises(DuplicateRecordError) as duplicate,
+        UnitOfWork(migrated_engine) as uow,
+    ):
         uow.identity_resolutions.add(
             _resolution(second_alias.id, resolution_id=ROOT_ID)
         )
@@ -225,9 +226,10 @@ def test_identity_primary_key_and_other_check_have_exact_public_types(
     assert duplicate.value.__cause__ is None
     valid = _compound("55555555-5555-4555-8555-555555555555", digest="d" * 64)
     invalid = Compound.model_construct(**{**valid.model_dump(), "formula": ""})
-    with pytest.raises(StorageIntegrityError) as integrity, UnitOfWork(
-        migrated_engine
-    ) as uow:
+    with (
+        pytest.raises(StorageIntegrityError) as integrity,
+        UnitOfWork(migrated_engine) as uow,
+    ):
         uow.compounds.add(invalid)
     assert str(integrity.value) == "compound violates storage integrity"
     assert integrity.value.__cause__ is None
@@ -237,9 +239,10 @@ def test_identity_primary_key_and_other_check_have_exact_public_types(
 def test_resolution_chain_conflicts_are_typed(migrated_engine: Engine) -> None:
     project = _project()
     batch = _batch(project)
-    with pytest.raises(UnitOfWorkError, match="failed"), UnitOfWork(
-        migrated_engine
-    ) as uow:
+    with (
+        pytest.raises(UnitOfWorkError, match="failed"),
+        UnitOfWork(migrated_engine) as uow,
+    ):
         uow.projects.add(project)
         uow.import_batches.add(batch)
         uow.compounds.add(_compound())
@@ -304,9 +307,10 @@ def test_identity_repository_maps_second_successor_and_cross_alias_conflicts(
                 supersedes_id=ROOT_ID,
             )
         )
-    with pytest.raises(IdentityResolutionConflictError) as raised, UnitOfWork(
-        migrated_engine
-    ) as uow:
+    with (
+        pytest.raises(IdentityResolutionConflictError) as raised,
+        UnitOfWork(migrated_engine) as uow,
+    ):
         uow.identity_resolutions.add(
             _resolution(
                 resolution_id=NEXT_2_ID,
@@ -328,9 +332,10 @@ def test_identity_repository_maps_second_successor_and_cross_alias_conflicts(
         decision=IdentityDecision.REASSIGNED,
         supersedes_id=ROOT_2_ID,
     )
-    with pytest.raises(IdentityResolutionConflictError), UnitOfWork(
-        migrated_engine
-    ) as uow:
+    with (
+        pytest.raises(IdentityResolutionConflictError),
+        UnitOfWork(migrated_engine) as uow,
+    ):
         uow.identity_resolutions.add(cross_alias)
     del batch, compound
 
@@ -350,17 +355,16 @@ def test_identity_repository_maps_invalid_restore_and_repeated_retract(
         actor_id="reviewer",
         rationale="reviewed",
     )
-    with pytest.raises(IdentityResolutionConflictError), UnitOfWork(
-        migrated_engine
-    ) as uow:
+    with (
+        pytest.raises(IdentityResolutionConflictError),
+        UnitOfWork(migrated_engine) as uow,
+    ):
         uow.identity_resolutions.add(invalid_restore)
 
     alias_3 = alias.model_copy(update={"id": ALIAS_3_ID, "source_value": "789"})
     with UnitOfWork(migrated_engine) as uow:
         uow.aliases.add(alias_3)
-        uow.identity_resolutions.add(
-            _resolution(alias_3.id, resolution_id=ROOT_3_ID)
-        )
+        uow.identity_resolutions.add(_resolution(alias_3.id, resolution_id=ROOT_3_ID))
         uow.identity_resolutions.add(
             _resolution(
                 alias_3.id,
@@ -377,9 +381,10 @@ def test_identity_repository_maps_invalid_restore_and_repeated_retract(
         compound_id=None,
         supersedes_id=RETRACT_3_ID,
     )
-    with pytest.raises(IdentityResolutionConflictError), UnitOfWork(
-        migrated_engine
-    ) as uow:
+    with (
+        pytest.raises(IdentityResolutionConflictError),
+        UnitOfWork(migrated_engine) as uow,
+    ):
         uow.identity_resolutions.add(repeated)
     del batch
 
@@ -388,9 +393,7 @@ def test_state_ownership_and_state_hash_conflicts_are_typed(
     migrated_engine: Engine,
 ) -> None:
     project, batch, alias, compound = _seed_identity(migrated_engine)
-    second_compound = _compound(
-        "99999999-9999-4999-8999-999999999999", digest="c" * 64
-    )
+    second_compound = _compound("99999999-9999-4999-8999-999999999999", digest="c" * 64)
     second_state = _state(second_compound.id).model_copy(update={"id": STATE_2_ID})
     with UnitOfWork(migrated_engine) as uow:
         uow.compounds.add(second_compound)
@@ -405,9 +408,10 @@ def test_state_ownership_and_state_hash_conflicts_are_typed(
         decided_at=NOW,
         actor_kind=ActorKind.SYSTEM,
     )
-    with pytest.raises(IdentityResolutionConflictError), UnitOfWork(
-        migrated_engine
-    ) as uow:
+    with (
+        pytest.raises(IdentityResolutionConflictError),
+        UnitOfWork(migrated_engine) as uow,
+    ):
         uow.identity_resolutions.add(bad_ownership)
     with pytest.raises(DuplicateRecordError), UnitOfWork(migrated_engine) as uow:
         uow.molecular_states.add(
@@ -434,9 +438,7 @@ def test_populated_provenance_and_deterministic_identity_lists(
         }
     )
     alias = _alias(batch.id)
-    alias_2 = alias.model_copy(
-        update={"id": ALIAS_2_ID, "source_value": "456"}
-    )
+    alias_2 = alias.model_copy(update={"id": ALIAS_2_ID, "source_value": "456"})
     with UnitOfWork(migrated_engine) as uow:
         uow.projects.add(project)
         uow.import_batches.add(batch)

@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 class _RepositoryLifecycle(Protocol):
     def _deactivate(self) -> None: ...
 
+
 type SessionFactory = sessionmaker[Session]
 UNIT_OF_WORK_FLAG = "_fidelichem_unit_of_work"
 TRANSACTION_FAILED_FLAG = "_fidelichem_transaction_failed"

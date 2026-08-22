@@ -5,12 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/fidelichem-mvp-phases-1-16`
+- Branch de execução: `feat/phase-3-adapter-sdk`
 - Base integrada: `main` em `3ad80bc`
-- Última fase concluída: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: nenhuma; Fase 3 ainda não iniciada.
-- Próxima ação exata: iniciar a exploração da Fase 3 — Adapter SDK + Import
-  Manager — somente quando solicitado.
+- Última fase concluída: **Fase 3 — Adapter SDK + Import Manager**
+- Etapa ativa: nenhuma; Fase 3 concluída com sucesso.
+- Próxima ação exata: iniciar a exploração da Fase 4 — Universal Table Importer.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -20,9 +19,10 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
 | 2 — Chemistry + Identity Resolver | Concluída | Tasks 1–8, gate global e review Terra integral aprovados; zero Critical/Important/Minor. |
-| 3 — Adapter SDK + Import Manager | Pendente | Próxima fase; exploração ainda não iniciada. |
-| 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
+| 3 — Adapter SDK + Import Manager | Concluída | Tasks 1–8 concluídas; EvidenceAdapter Protocol, AdapterRegistry, ImportManager, DuplicateImportDetector, FakeAdapter e suite E2E aprovados. |
+| 4 — Universal Table Importer | Pendente | Próxima fase; aguardar início. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
+
 | 6 — GOLD Adapter | Pendente | Aguardar gate Terra da Fase 5. |
 | 7 — SMILES2Select + SMILES2Docking | Pendente | Aguardar gate Terra da Fase 6. |
 | 8 — DockLens | Pendente | Aguardar gate Terra da Fase 7. |

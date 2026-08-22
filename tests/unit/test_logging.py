@@ -106,9 +106,7 @@ def test_configure_logging_configures_formatter(
     )
 
     assert handler.formatter is not None
-    assert handler.formatter._fmt == (
-        "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    assert handler.formatter._fmt == ("%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 @pytest.mark.unit
@@ -122,6 +120,4 @@ def test_configure_logging_restores_formatter_on_reused_handler(
     configure_logging()
 
     assert handler.formatter is not None
-    assert handler.formatter._fmt == (
-        "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    assert handler.formatter._fmt == ("%(asctime)s %(levelname)s %(name)s: %(message)s")

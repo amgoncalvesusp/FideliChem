@@ -19,9 +19,7 @@ def configure_logging(level: int | str = logging.INFO) -> logging.Logger:
     resolved_level = _resolve_level(level)
     logger = logging.getLogger(_LOGGER_NAME)
     owned_handlers = tuple(
-        handler
-        for handler in logger.handlers
-        if handler.get_name() == _HANDLER_NAME
+        handler for handler in logger.handlers if handler.get_name() == _HANDLER_NAME
     )
 
     if owned_handlers:

@@ -360,11 +360,7 @@ def test_external_inchi_conflict_reports_all_structural_and_inchi_evidence() -> 
         (candidate.compound_id, candidate.molecular_state_id)
         for candidate in report.candidates
     } == {(COMPOUND_A, STATE_A), (COMPOUND_A, None), (COMPOUND_B, None)}
-    evidence = {
-        item
-        for candidate in report.candidates
-        for item in candidate.evidence
-    }
+    evidence = {item for candidate in report.candidates for item in candidate.evidence}
     assert EvidenceKind.CATALOG_STATE in evidence
     assert EvidenceKind.CATALOG_PARENT in evidence
     assert EvidenceKind.CATALOG_INCHI in evidence
@@ -512,9 +508,7 @@ def test_static_resolver_is_pure_and_has_no_write_methods() -> None:
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source)
     imports = [
-        node.module or ""
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
+        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
     ]
     imports.extend(
         alias.name

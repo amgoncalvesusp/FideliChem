@@ -38,9 +38,7 @@ Chem: Any = import_module("rdkit.Chem")
 rdBase: Any = import_module("rdkit.rdBase")
 Descriptors: Any = import_module("rdkit.Chem.Descriptors")
 inchi: Any = import_module("rdkit.Chem.inchi")
-rdMolStandardize: Any = import_module(
-    "rdkit.Chem.MolStandardize.rdMolStandardize"
-)
+rdMolStandardize: Any = import_module("rdkit.Chem.MolStandardize.rdMolStandardize")
 rdMolDescriptors = import_module("rdkit.Chem.rdMolDescriptors")
 
 _EXPECTED_RDKIT_VERSION = (2026, 3, 4)
@@ -136,9 +134,7 @@ def _inchi_library_version() -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _configured_tautomer(
-    mol: Any, policy: ChemistryPolicy
-) -> Any:
+def _configured_tautomer(mol: Any, policy: ChemistryPolicy) -> Any:
     with _quiet_rdkit():
         try:
             enumerator = rdMolStandardize.TautomerEnumerator()
@@ -224,9 +220,7 @@ class ChemistryService:
         charge_parent_state_smiles = _canonical_smiles(
             charge_parent_state, isomeric=False
         )
-        tautomer_parent_state = _configured_tautomer(
-            charge_parent_state, self.policy
-        )
+        tautomer_parent_state = _configured_tautomer(charge_parent_state, self.policy)
         tautomer_parent_state_smiles = _canonical_smiles(
             tautomer_parent_state, isomeric=False
         )

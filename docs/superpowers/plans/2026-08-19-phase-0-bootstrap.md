@@ -429,9 +429,7 @@ def configure_logging(level: int | str = logging.INFO) -> logging.Logger:
     resolved_level = _resolve_level(level)
     logger = logging.getLogger(_LOGGER_NAME)
     owned_handlers = tuple(
-        handler
-        for handler in logger.handlers
-        if handler.get_name() == _HANDLER_NAME
+        handler for handler in logger.handlers if handler.get_name() == _HANDLER_NAME
     )
 
     if owned_handlers:
@@ -766,7 +764,7 @@ def test_ci_covers_phase_zero_gate_on_both_operating_systems() -> None:
     for required_text in (
         "ubuntu-latest",
         "windows-latest",
-        "python-version: \"3.12\"",
+        'python-version: "3.12"',
         "uv lock --check",
         "uv run ruff check .",
         "uv run mypy src/fidelichem",

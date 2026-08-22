@@ -48,7 +48,8 @@ class ChemistryPolicy(DomainModel):
                         "policy_id is already assigned to a different algorithm"
                     )
         elif any(
-            prefix in {
+            prefix
+            in {
                 self.state_hash_prefix,
                 self.parent_hash_prefix,
                 self.stereo_signature_prefix,
@@ -86,6 +87,7 @@ class ChemistryPolicy(DomainModel):
     def policy_hash(self) -> str:
         return sha256_bytes(self.hash_payload)
 
+
 DEFAULT_POLICY = ChemistryPolicy.model_validate(_DEFAULT_VALUES)
 
 
@@ -102,15 +104,11 @@ def hash_payload(prefix: str, payload: str) -> str:
 
 
 def state_hash(policy: ChemistryPolicy, state_smiles: str) -> str:
-    return sha256_bytes(
-        f"{policy.state_hash_prefix}\0{state_smiles}".encode()
-    )
+    return sha256_bytes(f"{policy.state_hash_prefix}\0{state_smiles}".encode())
 
 
 def parent_hash(policy: ChemistryPolicy, parent_smiles: str) -> str:
-    return sha256_bytes(
-        f"{policy.parent_hash_prefix}\0{parent_smiles}".encode()
-    )
+    return sha256_bytes(f"{policy.parent_hash_prefix}\0{parent_smiles}".encode())
 
 
 __all__ = [

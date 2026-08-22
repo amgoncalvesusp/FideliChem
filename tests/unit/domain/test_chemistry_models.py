@@ -266,16 +266,22 @@ def test_identity_resolution_rejects_invalid_decision_shapes(
 
 
 def test_selection_modes_enforce_target_shapes() -> None:
-    assert IdentitySelection(
-        mode=SelectionMode.EXISTING_TARGET,
-        compound_id=COMPOUND_ID,
-        molecular_state_id=STATE_ID,
-    ).compound_id == COMPOUND_ID
-    assert IdentitySelection(
-        mode=SelectionMode.NEW_COMPOUND,
-        compound_id=None,
-        molecular_state_id=None,
-    ).mode is SelectionMode.NEW_COMPOUND
+    assert (
+        IdentitySelection(
+            mode=SelectionMode.EXISTING_TARGET,
+            compound_id=COMPOUND_ID,
+            molecular_state_id=STATE_ID,
+        ).compound_id
+        == COMPOUND_ID
+    )
+    assert (
+        IdentitySelection(
+            mode=SelectionMode.NEW_COMPOUND,
+            compound_id=None,
+            molecular_state_id=None,
+        ).mode
+        is SelectionMode.NEW_COMPOUND
+    )
     with pytest.raises(ValidationError):
         IdentitySelection(
             mode=SelectionMode.EXISTING_TARGET,
@@ -291,16 +297,22 @@ def test_selection_modes_enforce_target_shapes() -> None:
 
 
 def test_identity_actor_rules_are_frozen_and_bounded() -> None:
-    assert IdentityActor(
-        kind=ActorKind.USER,
-        actor_id="reviewer",
-        rationale="manual review",
-    ).actor_id == "reviewer"
-    assert IdentityActor(
-        kind=ActorKind.SYSTEM,
-        actor_id=None,
-        rationale=None,
-    ).kind is ActorKind.SYSTEM
+    assert (
+        IdentityActor(
+            kind=ActorKind.USER,
+            actor_id="reviewer",
+            rationale="manual review",
+        ).actor_id
+        == "reviewer"
+    )
+    assert (
+        IdentityActor(
+            kind=ActorKind.SYSTEM,
+            actor_id=None,
+            rationale=None,
+        ).kind
+        is ActorKind.SYSTEM
+    )
     with pytest.raises(ValidationError):
         IdentityActor(kind=ActorKind.SYSTEM, actor_id="service", rationale=None)
     with pytest.raises(ValidationError):
