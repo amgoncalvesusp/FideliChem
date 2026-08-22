@@ -38,9 +38,13 @@ def _merge_candidates(
     for group in groups:
         for candidate in group:
             key = _candidate_key(candidate)
-            evidence, dormant = merged.setdefault(key, (set(), False))
-            evidence.update(candidate.evidence)
-            merged[key] = (evidence, dormant or candidate.catalog_dormant)
+            evidence, dormant = merged.get(key, (set(), False))
+            merged = merged | {
+                key: (
+                    evidence | set(candidate.evidence),
+                    dormant or candidate.catalog_dormant,
+                )
+            }
     return tuple(
         ResolutionCandidate(
             compound_id=compound_id,
@@ -114,13 +118,11 @@ class IdentityResolver:
             and result.source_smiles != claim.smiles
         ):
             raise ValueError("canonicalization source does not match the claim")
+        if result is None and claim.smiles is not None:
+            raise ValueError("canonicalization result is required for a SMILES claim")
         aliases = self._alias_candidates(claim, index)
         supplied_inchi = self._inchi_candidates(claim.inchikey, index)
         if result is None:
-            if claim.smiles is not None:
-                raise ValueError(
-                    "canonicalization result is required for a SMILES claim"
-                )
             weak_candidates = _merge_candidates((aliases, supplied_inchi))
             if aliases:
                 if len(_distinct_targets(aliases)) == 1:
@@ -153,7 +155,12 @@ class IdentityResolver:
         parent_candidates = index.catalog_by_parent_hash(
             result.compound.structure_hash
         )
-        inchi_candidates = self._inchi_candidates_for_result(result, claim, index)
+        generated_inchi_candidates = self._inchi_candidates_for_result(
+            result, index, excluded_key=claim.inchikey
+        )
+        inchi_candidates = _merge_candidates(
+            (supplied_inchi, generated_inchi_candidates)
+        )
         structural = _merge_candidates((state_candidates, parent_candidates))
         all_candidates = _merge_candidates(
             (state_candidates, parent_candidates, inchi_candidates, aliases)
@@ -230,17 +237,17 @@ class IdentityResolver:
     def _inchi_candidates_for_result(
         cls,
         result: CanonicalizationResult,
-        claim: IdentityClaim,
         index: IdentityIndex,
+        *,
+        excluded_key: str | None = None,
     ) -> tuple[ResolutionCandidate, ...]:
         keys = {
             key
             for key in (
                 result.molecular_state.state_inchikey,
                 result.compound.inchikey,
-                claim.inchikey,
             )
-            if key is not None
+            if key is not None and key != excluded_key
         }
         return _merge_candidates(
             cls._inchi_candidates(key, index) for key in sorted(keys)

@@ -83,12 +83,14 @@ def _claim(
     inchikey: str | None = None,
     source_system: str | None = None,
     source_value: str | None = None,
+    import_batch_id: str | None = None,
 ) -> IdentityClaim:
     return IdentityClaim(
         smiles=smiles,
         inchikey=inchikey,
         source_system=source_system,
         source_value=source_value,
+        import_batch_id=import_batch_id,
     )
 
 
@@ -266,6 +268,34 @@ def test_result_none_keeps_alias_and_supplied_inchi_weak_evidence() -> None:
     }
 
 
+def test_result_none_smiles_boundary_precedes_all_index_reads() -> None:
+    index = SpyIndex(
+        inchis={INCHI_B: (_candidate(COMPOUND_B, None),)},
+        aliases={("gold", "x"): (_candidate(),)},
+    )
+    with pytest.raises(ValueError):
+        IdentityResolver().resolve(
+            None,
+            _claim(
+                smiles="CCO",
+                inchikey=INCHI_B,
+                source_system="gold",
+                source_value="x",
+            ),
+            index,
+        )
+    assert index.calls == []
+
+
+def test_import_batch_without_source_pair_is_resolver_usable() -> None:
+    report = IdentityResolver().resolve(
+        _result(),
+        _claim(import_batch_id="ffffffff-ffff-4fff-8fff-ffffffffffff"),
+        FakeIndex(),
+    )
+    assert report.kind is ResolutionKind.NEW_COMPOUND
+
+
 def test_multiple_alias_targets_are_ambiguous() -> None:
     aliases = (
         _candidate(COMPOUND_A, None, evidence=(EvidenceKind.ACTIVE_ALIAS,)),
@@ -301,6 +331,55 @@ def test_external_inchi_conflict_is_not_auto_merged() -> None:
     assert report.kind is ResolutionKind.CONFLICT
     assert report.reason is ResolutionReason.CONFLICTING_EVIDENCE
     assert report.catalog_action is CatalogAction.NONE
+
+
+def test_external_inchi_conflict_reports_all_structural_and_inchi_evidence() -> None:
+    state = _candidate(COMPOUND_A, STATE_A, evidence=(EvidenceKind.CATALOG_STATE,))
+    parent = _candidate(COMPOUND_A, None, evidence=(EvidenceKind.CATALOG_PARENT,))
+    generated = _candidate(
+        COMPOUND_A,
+        STATE_A,
+        evidence=(EvidenceKind.CATALOG_INCHI,),
+    )
+    supplied = _candidate(
+        COMPOUND_B,
+        None,
+        evidence=(EvidenceKind.CATALOG_INCHI,),
+    )
+    report = IdentityResolver().resolve(
+        _result(),
+        _claim(inchikey=INCHI_B),
+        FakeIndex(
+            states={"a" * 64: (state,)},
+            parents={"b" * 64: (parent,)},
+            inchis={INCHI_A: (generated,), INCHI_B: (supplied,)},
+        ),
+    )
+    assert report.kind is ResolutionKind.CONFLICT
+    assert {
+        (candidate.compound_id, candidate.molecular_state_id)
+        for candidate in report.candidates
+    } == {(COMPOUND_A, STATE_A), (COMPOUND_A, None), (COMPOUND_B, None)}
+    evidence = {
+        item
+        for candidate in report.candidates
+        for item in candidate.evidence
+    }
+    assert EvidenceKind.CATALOG_STATE in evidence
+    assert EvidenceKind.CATALOG_PARENT in evidence
+    assert EvidenceKind.CATALOG_INCHI in evidence
+
+
+def test_supplied_inchi_is_queried_once_and_reused() -> None:
+    index = SpyIndex(inchis={INCHI_B: (_candidate(COMPOUND_B, None),)})
+    IdentityResolver().resolve(
+        _result(state_inchikey=INCHI_B, compound_inchikey=None),
+        _claim(inchikey=INCHI_B),
+        index,
+    )
+    assert [call for call in index.calls if call == ("inchi", INCHI_B)] == [
+        ("inchi", INCHI_B)
+    ]
 
 
 def test_structural_and_alias_targets_disagree_as_conflict() -> None:
@@ -448,15 +527,54 @@ def test_static_resolver_is_pure_and_has_no_write_methods() -> None:
     )
     assert "sqlalchemy" not in source.lower()
     assert "rdkit" not in source.lower()
+    dynamic_imports = {
+        (
+            "name",
+            node.func.id,
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"__import__", "import_module"}
+    }
+    dynamic_imports.update(
+        (
+            "attribute",
+            node.func.attr,
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"__import__", "import_module"}
+    )
+    assert dynamic_imports == set()
     mutation_calls = {
         node.func.attr
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr
-        in {"add", "save", "commit", "flush", "write", "delete", "execute"}
+        in {
+            "add",
+            "save",
+            "commit",
+            "flush",
+            "write",
+            "delete",
+            "execute",
+            "setattr",
+            "append",
+            "extend",
+            "update",
+            "__setitem__",
+        }
     }
     assert mutation_calls == set()
+    assert not any(
+        isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Subscript) for target in node.targets)
+        for node in ast.walk(tree)
+    )
     resolver = next(node for node in tree.body if isinstance(node, ast.ClassDef))
     methods = {
         node.name

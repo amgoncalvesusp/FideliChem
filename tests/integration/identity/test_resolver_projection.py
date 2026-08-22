@@ -17,7 +17,7 @@ from fidelichem.domain.chemistry import (
     MolecularState,
 )
 from fidelichem.domain.models import ActorKind, ImportBatch, ImportStatus, Project
-from fidelichem.identity.models import ResolutionKind
+from fidelichem.identity.models import EvidenceKind, ResolutionKind
 from fidelichem.identity.resolver import IdentityResolver
 from fidelichem.storage.engine import create_sqlite_engine
 from fidelichem.storage.identity_index import PersistentIdentityIndex
@@ -227,6 +227,91 @@ def test_dormant_parent_returns_new_state_and_reuses_compound(
     )
     assert report.kind is ResolutionKind.NEW_STATE
     assert report.catalog_match_dormant is True
+
+
+def test_compound_only_active_alias_with_dormant_state_siblings_resolves_exact_state(
+    migrated_engine: Engine,
+) -> None:
+    catalog_batch = _batch()
+    active_batch = _batch().model_copy(
+        update={"id": "abababab-abab-4bab-8bab-abababababab"}
+    )
+    catalog_alias_id = ALIAS_ID
+    active_alias_id = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd"
+    catalog_root_id = ROOT_ID
+    active_root_id = "dededede-dede-4ede-8ede-dededededede"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(_project())
+        uow.import_batches.add(catalog_batch)
+        uow.import_batches.add(active_batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.molecular_states.add(_state(STATE_B_ID, "c" * 64))
+        uow.aliases.add(
+            Alias(
+                id=catalog_alias_id,
+                source_system="gold",
+                source_value="ligand-17",
+                import_batch_id=catalog_batch.id,
+                created_at=NOW,
+            )
+        )
+        uow.aliases.add(
+            Alias(
+                id=active_alias_id,
+                source_system="gold",
+                source_value="ligand-17",
+                import_batch_id=active_batch.id,
+                created_at=NOW,
+            )
+        )
+        uow.identity_resolutions.add(
+            _root().model_copy(
+                update={
+                    "id": catalog_root_id,
+                    "alias_id": catalog_alias_id,
+                    "molecular_state_id": None,
+                }
+            )
+        )
+        uow.identity_resolutions.add(
+            _root().model_copy(
+                update={
+                    "id": active_root_id,
+                    "alias_id": active_alias_id,
+                    "molecular_state_id": None,
+                }
+            )
+        )
+    with UnitOfWork(migrated_engine) as uow:
+        uow.import_batches.rollback(catalog_batch.id, rollback_reason="withdrawn")
+
+    index = PersistentIdentityIndex(migrated_engine)
+    for state_hash, state_id in (("a" * 64, STATE_A_ID), ("c" * 64, STATE_B_ID)):
+        report = IdentityResolver().resolve(
+            _result(state_hash=state_hash), _claim(), index
+        )
+        assert report.kind is ResolutionKind.EXACT_STATE
+        assert report.catalog_match_dormant is True
+        state_candidates = [
+            candidate
+            for candidate in report.candidates
+            if candidate.molecular_state_id == state_id
+        ]
+        compound_candidates = [
+            candidate
+            for candidate in report.candidates
+            if candidate.molecular_state_id is None
+        ]
+        assert len(state_candidates) == 1
+        assert state_candidates[0].catalog_dormant is True
+        active_compound_candidates = [
+            candidate
+            for candidate in compound_candidates
+            if EvidenceKind.ACTIVE_ALIAS in candidate.evidence
+        ]
+        assert len(active_compound_candidates) == 1
+        assert active_compound_candidates[0].catalog_dormant is False
 
 
 def test_distinct_state_signatures_are_coherent_and_resolver_usable(
