@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: Task 2 — canonicalização RDKit limitada e versionada
-- Próxima ação exata: implementar por TDD a Task 2 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `d778228`.
+- Etapa ativa: Task 3 — schema `0002` de identidade química
+- Próxima ação exata: implementar por TDD a Task 3 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `fc844c3`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -18,7 +18,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento | Design aprovado e Task 1 concluída; Task 2 é o próximo marco. |
+| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–2 concluídas; Task 3 (schema/migration) é o próximo marco. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -195,6 +195,20 @@ Fase 1, gate final em 2026-08-20:
   origem e erros com códigos/mensagens fixos sem vazamento.
 - Gate: Ruff, mypy de produção, lock, pip-audit, build, pip check e diff check
   aprovados; review final sem Critical/Important/Minor.
+
+### Task 2 — canonicalização RDKit limitada e versionada
+
+- Estado: concluída e aprovada após duas rodadas de hardening/re-review.
+- Commits: `05ffc4c` (implementação), `3fa3611` (boundary seguro) e `fc844c3`
+  (supressão de diagnósticos serializada).
+- Resultado: 275 testes completos; cobertura global de branches 90,42% e
+  cobertura de branches do pacote chemistry 89,82%.
+- Entregue: hash/política versionados, atom-map stripping, estado exato,
+  parentização conservadora, tautomeria limitada com `PickCanonical`,
+  fórmula/MolWt, InChI opcional, erros fixos e boundary AST.
+- Concorrência: `RLock` cobre `rdBase.BlockLogs`; 48 canonicalizações em oito
+  workers concluíram sem deadlock nem vazamento de sentinel.
+- Gate completo e review final sem Critical/Important/Minor.
 
 ## Convenções de continuidade
 
