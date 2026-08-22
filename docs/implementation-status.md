@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-4-universal-table-importer`
-- Base integrada: `feat/phase-3-adapter-sdk`
-- Última fase concluída: **Fase 4 — Universal Table Importer**
-- Etapa ativa: nenhuma; Fase 4 concluída com sucesso.
-- Próxima ação exata: iniciar a Fase 5 — Score Registry + Normalization.
+- Branch de execução: `feat/phase-5-score-registry-normalization`
+- Base integrada: `feat/phase-4-universal-table-importer`
+- Última fase concluída: **Fase 5 — Score Registry + Normalization**
+- Etapa ativa: nenhuma; Fase 5 concluída com sucesso.
+- Próxima ação exata: iniciar a Fase 6 — GOLD Adapter.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -21,10 +21,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 2 — Chemistry + Identity Resolver | Concluída | Tasks 1–8, gate global e review Terra integral aprovados; zero Critical/Important/Minor. |
 | 3 — Adapter SDK + Import Manager | Concluída | Tasks 1–8 concluídas; EvidenceAdapter Protocol, AdapterRegistry, ImportManager, DuplicateImportDetector, FakeAdapter e suite E2E aprovados. |
 | 4 — Universal Table Importer | Concluída | UniversalTableAdapter, PresetManager, TableMappingSchema, robust readers (CSV/TSV/JSON/JSONL), 508 testes passando com 89,55% de branch coverage. |
-| 5 — Score Registry + normalization | Pendente | Próxima fase; iniciar especificação e implementação. |
+| 5 — Score Registry + normalization | Concluída | ScoreDefinition, ScoreRegistry com catálogo de docking functions, ScoreNormalizer (percentis orientados melhor=1.0, robust Z, missing preservation), 519 testes passando com 89,75% de branch coverage. |
+| 6 — GOLD Adapter | Pendente | Próxima fase; iniciar especificação e implementação. |
 
-
-| 6 — GOLD Adapter | Pendente | Aguardar gate Terra da Fase 5. |
 | 7 — SMILES2Select + SMILES2Docking | Pendente | Aguardar gate Terra da Fase 6. |
 | 8 — DockLens | Pendente | Aguardar gate Terra da Fase 7. |
 | 9 — MolDynStudio + GROMACS | Pendente | Aguardar gate Terra da Fase 8. |

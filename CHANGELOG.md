@@ -26,6 +26,10 @@ All notable changes to FideliChem will be documented in this file.
 - Robust tabular file inspection and readers supporting CSV, TSV, JSON, and JSONL with strict missing data preservation (None instead of zero).
 - PresetManager for saving, loading, listing, and heuristic header matching of reusable mapping templates.
 - UniversalTableAdapter implementing EvidenceAdapter with full integration into ImportManager and chemical identity resolution.
+- ScoreDefinition domain model with explicit comparability scopes, units, and directionality.
+- ScoreRegistry service with catalog of standard docking scoring functions (ChemPLP, GoldScore, ChemScore, ASP, Vina affinity, Glide, etc.) and heuristic direction inference.
+- ScoreNormalizer computing direction-aware percentiles (oriented with 1.0 = best candidate), ranks, robust Z-scores via MAD, and scope distribution statistics with strict missing data preservation.
+
 
 
 

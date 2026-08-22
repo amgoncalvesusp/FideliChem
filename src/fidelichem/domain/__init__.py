@@ -67,6 +67,12 @@ from .models import (
     Project,
     SourceArtifact,
 )
+from .scoring import (
+    ComparabilityScope,
+    NormalizedScoreObservation,
+    ScoreDefinition,
+    ScoreDistributionStats,
+)
 from .table_importer import (
     ColumnRole,
     IdentityColumnMapping,
@@ -91,6 +97,7 @@ __all__ = [
     "ChemistryWarning",
     "ChemistryWarningCode",
     "ColumnRole",
+    "ComparabilityScope",
     "Compound",
     "DetectionReport",
     "DockingRunRecord",
@@ -121,6 +128,7 @@ __all__ = [
     "InvalidTimestampError",
     "MolecularState",
     "NoOrganicParentStructureError",
+    "NormalizedScoreObservation",
     "ParentPolicyMismatchError",
     "PoseRecord",
     "Project",
@@ -128,7 +136,9 @@ __all__ = [
     "QCSeverity",
     "RawCompoundRecord",
     "ScoreColumnMapping",
+    "ScoreDefinition",
     "ScoreDirection",
+    "ScoreDistributionStats",
     "ScoreObservationRecord",
     "ScoreScope",
     "SelectionMode",
