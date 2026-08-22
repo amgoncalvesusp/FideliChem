@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: Task 4 — repositories transacionais de identidade
-- Próxima ação exata: implementar por TDD a Task 4 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `addb926`.
+- Etapa ativa: Task 5 — valores do resolver e índice persistente somente-leitura
+- Próxima ação exata: implementar por TDD a Task 5 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `5067aae`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -18,7 +18,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–3 concluídas; Task 4 (repositories/UoW) é o próximo marco. |
+| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–4 concluídas; Task 5 (valores/índice persistente) é o próximo marco. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -223,6 +223,25 @@ Fase 1, gate final em 2026-08-20:
   rationale sem tri-state, massa finita e `INSERT OR REPLACE` bloqueado.
 - Concorrência: races de alias/root/successor com um vencedor e nenhum fork;
   review final GO sem findings remanescentes.
+
+### Task 4 — repositories transacionais de identidade
+
+- Estado: concluída e aprovada após duas rodadas de hardening e três reviews
+  independentes.
+- Commits: `f31dccd` (implementação), `6051102` (matriz de conflitos e
+  robustez) e `5067aae` (locks reais e isolamento final das constraints).
+- Resultado: 342 testes completos; cobertura global de branches 90,49%;
+  `chemistry_repositories.py` com 100% de statements e 98% de branches.
+- Entregue: repositories tipados para Compound, MolecularState, Alias e
+  IdentityResolution; UoW atômico sem commits internos; mapeamentos imutáveis;
+  provenance/InChI opcionais; ordenação determinística e erros públicos seguros.
+- Concorrência: races e locks SQLite reais para alias/root/successor produzem
+  exatamente um vencedor, nenhum fork, recuperação caller-owned após rollback
+  explícito e conflitos tipados; testes de lock passaram 20/20 repetições.
+- Boundary: classificação isolada de tuple natural, PK/hash, FK, cadeia e
+  transições de resolução e demais CHECKs; corrupção segura nos quatro mappers.
+- Gate: Ruff, mypy, lock, pip-audit, build, pip check e diff check aprovados;
+  review final GO sem Critical, Important ou Minor.
 
 ## Convenções de continuidade
 
