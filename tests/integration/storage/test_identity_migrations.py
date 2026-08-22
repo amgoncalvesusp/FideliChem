@@ -15,6 +15,7 @@ from fidelichem.storage.runner import current_revision, upgrade_database
 
 PROJECT = "11111111-1111-4111-8111-111111111111"
 BATCH = "33333333-3333-4333-8333-333333333333"
+BATCH_2 = "66666666-6666-4666-8666-666666666666"
 ARTIFACT = "55555555-5555-4555-8555-555555555555"
 AUDIT = "44444444-4444-4444-8444-444444444444"
 COMPOUND = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -569,6 +570,321 @@ def test_sqlite_writers_allow_one_alias_root_and_successor_winner(
     finally:
         engine_a.dispose()
         engine_b.dispose()
+
+
+@pytest.mark.parametrize(
+    "column,value,constraint",
+    [
+        ("source_system", "pub\x00chem", "ck_alias_source_system_format"),
+        ("source_system", "a" * 129, "ck_alias_source_system_format"),
+        ("source_value", "value\x00bad", "ck_alias_source_value_bounds"),
+        ("source_value", "v" * 1025, "ck_alias_source_value_bounds"),
+    ],
+)
+def test_alias_sql_boundaries_raise_the_named_check_and_preserve_rows(
+    identity_engine: Engine,
+    column: str,
+    value: str,
+    constraint: str,
+) -> None:
+    with identity_engine.begin() as connection:
+        before = connection.scalar(text("SELECT count(*) FROM alias"))
+        sql = (
+            "INSERT INTO alias (id,source_system,source_value,import_batch_id,created_at) "
+            "VALUES (:id,:source_system,:source_value,:batch,:at)"
+        )
+        values = {
+            "id": ALIAS_2,
+            "source_system": value if column == "source_system" else "pubchem",
+            "source_value": value if column == "source_value" else "valid",
+            "batch": BATCH,
+            "at": STAMP,
+        }
+        with pytest.raises(IntegrityError) as caught:
+            connection.execute(text(sql), values)
+        assert constraint in str(caught.value)
+        assert connection.scalar(text("SELECT count(*) FROM alias")) == before
+
+
+def test_alias_tuple_is_reusable_in_a_different_batch(identity_engine: Engine) -> None:
+    with identity_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO import_batch (id,project_id,adapter_id,adapter_version,"
+                "started_at,source_root) VALUES (:id,:project,'adapter','1',:at,'source')"
+            ),
+            {"id": BATCH_2, "project": PROJECT, "at": STAMP},
+        )
+        _seed_identity(connection)
+        connection.execute(
+            text(
+                "INSERT INTO alias (id,source_system,source_value,import_batch_id,created_at) "
+                "VALUES (:id,'pubchem','123',:batch,:at)"
+            ),
+            {"id": ALIAS_2, "batch": BATCH_2, "at": STAMP},
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM alias "
+                    "WHERE source_system='pubchem' AND source_value='123'"
+                )
+            )
+            == 2
+        )
+
+
+def test_resolution_transition_guards_reject_repeated_retract_and_wrong_predecessor(
+    identity_engine: Engine,
+) -> None:
+    with identity_engine.begin() as connection:
+        _seed_identity(connection)
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,decided_at,actor_kind) "
+                "VALUES (:id,:alias,'confirmed',:compound,:at,'system')"
+            ),
+            {"id": ROOT, "alias": ALIAS, "compound": COMPOUND, "at": STAMP},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,supersedes_id,decided_at,actor_kind,actor_id) "
+                "VALUES (:id,:alias,'retracted',:previous,:at,'user','operator')"
+            ),
+            {"id": RETRACT, "alias": ALIAS, "previous": ROOT, "at": STAMP},
+        )
+        before = connection.scalar(text("SELECT count(*) FROM identity_resolution"))
+        for decision in ("retracted", "reassigned"):
+            with pytest.raises((IntegrityError, OperationalError)) as caught:
+                connection.execute(
+                    text(
+                        "INSERT INTO identity_resolution "
+                        "(id,alias_id,decision,compound_id,supersedes_id,decided_at,actor_kind) "
+                        "VALUES (:id,:alias,:decision,:compound,:previous,:at,'system')"
+                    ),
+                    {
+                        "id": RACE_A if decision == "retracted" else RACE_B,
+                        "alias": ALIAS,
+                        "decision": decision,
+                        "compound": COMPOUND,
+                        "previous": RETRACT,
+                        "at": STAMP,
+                    },
+                )
+            assert "identity resolution transition is invalid" in str(caught.value)
+        assert (
+            connection.scalar(text("SELECT count(*) FROM identity_resolution"))
+            == before
+        )
+
+
+def test_restore_requires_retracted_predecessor_and_valid_actor_rationale(
+    identity_engine: Engine,
+) -> None:
+    with identity_engine.begin() as connection:
+        _seed_identity(connection)
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,decided_at,actor_kind) "
+                "VALUES (:id,:alias,'confirmed',:compound,:at,'system')"
+            ),
+            {"id": ROOT, "alias": ALIAS, "compound": COMPOUND, "at": STAMP},
+        )
+        with pytest.raises((IntegrityError, OperationalError)) as caught:
+            connection.execute(
+                text(
+                    "INSERT INTO identity_resolution "
+                    "(id,alias_id,decision,compound_id,supersedes_id,decided_at,"
+                    "actor_kind,actor_id,rationale) VALUES (:id,:alias,'restored',"
+                    ":compound,:previous,:at,'user','operator','reviewed')"
+                ),
+                {
+                    "id": RESTORE,
+                    "alias": ALIAS,
+                    "compound": COMPOUND,
+                    "previous": ROOT,
+                    "at": STAMP,
+                },
+            )
+        assert "identity resolution restore is invalid" in str(caught.value)
+        assert connection.scalar(text("SELECT count(*) FROM identity_resolution")) == 1
+
+
+@pytest.mark.parametrize(
+    "decision,columns,values,constraint",
+    [
+        (
+            "unknown",
+            "compound_id,supersedes_id,decided_at,actor_kind",
+            ":compound,:previous,:at,'system'",
+            "ck_identity_resolution_decision",
+        ),
+        (
+            "confirmed",
+            "decided_at,actor_kind",
+            ":at,'system'",
+            "ck_identity_resolution_shape",
+        ),
+        (
+            "reassigned",
+            "supersedes_id,decided_at,actor_kind",
+            ":previous,:at,'system'",
+            "ck_identity_resolution_shape",
+        ),
+        (
+            "retracted",
+            "compound_id,supersedes_id,decided_at,actor_kind,actor_id",
+            ":compound,:previous,:at,'user','operator'",
+            "ck_identity_resolution_shape",
+        ),
+    ],
+)
+def test_invalid_decision_target_shapes_raise_named_checks(
+    identity_engine: Engine,
+    decision: str,
+    columns: str,
+    values: str,
+    constraint: str,
+) -> None:
+    with identity_engine.begin() as connection:
+        _seed_identity(connection)
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,decided_at,actor_kind) "
+                "VALUES (:id,:alias,'confirmed',:compound,:at,'system')"
+            ),
+            {"id": ROOT, "alias": ALIAS, "compound": COMPOUND, "at": STAMP},
+        )
+        with pytest.raises(IntegrityError) as caught:
+            connection.execute(
+                text(
+                    "INSERT INTO identity_resolution (id,alias_id,decision,"
+                    f"{columns}) VALUES (:id,:alias,:decision,{values})"
+                ),
+                {
+                    "id": RACE_A,
+                    "alias": ALIAS,
+                    "decision": decision,
+                    "compound": COMPOUND,
+                    "previous": ROOT,
+                    "at": STAMP,
+                },
+            )
+        assert constraint in str(caught.value)
+        assert connection.scalar(text("SELECT count(*) FROM identity_resolution")) == 1
+
+
+def test_second_successor_is_rejected_by_unique_predecessor_constraint(
+    identity_engine: Engine,
+) -> None:
+    with identity_engine.begin() as connection:
+        _seed_identity(connection)
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,decided_at,actor_kind) "
+                "VALUES (:id,:alias,'confirmed',:compound,:at,'system')"
+            ),
+            {"id": ROOT, "alias": ALIAS, "compound": COMPOUND, "at": STAMP},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,supersedes_id,decided_at,actor_kind) "
+                "VALUES (:id,:alias,'reassigned',:compound,:previous,:at,'system')"
+            ),
+            {
+                "id": NEXT,
+                "alias": ALIAS,
+                "compound": COMPOUND,
+                "previous": ROOT,
+                "at": STAMP,
+            },
+        )
+        with pytest.raises(IntegrityError) as caught:
+            connection.execute(
+                text(
+                    "INSERT INTO identity_resolution "
+                    "(id,alias_id,decision,compound_id,supersedes_id,decided_at,actor_kind) "
+                    "VALUES (:id,:alias,'reassigned',:compound,:previous,:at,'system')"
+                ),
+                {
+                    "id": RESTORE,
+                    "alias": ALIAS,
+                    "compound": COMPOUND,
+                    "previous": ROOT,
+                    "at": STAMP,
+                },
+            )
+        assert "identity resolution predecessor already has successor" in str(
+            caught.value
+        )
+        assert connection.scalar(text("SELECT count(*) FROM identity_resolution")) == 2
+
+
+def test_resolution_foreign_keys_reject_orphan_alias_compound_and_state(
+    identity_engine: Engine,
+) -> None:
+    with identity_engine.begin() as connection:
+        _seed_identity(connection)
+        cases = (
+            "alias_id,decision,compound_id,decided_at,actor_kind",
+            "compound_id,decided_at,actor_kind",
+            "molecular_state_id,decided_at,actor_kind",
+        )
+        for index, _columns in enumerate(cases):
+            with pytest.raises(IntegrityError) as caught:
+                if index == 0:
+                    connection.execute(
+                        text(
+                            "INSERT INTO identity_resolution (id,alias_id,decision,compound_id,decided_at,actor_kind) "
+                            "VALUES (:id,:alias,'confirmed',:compound,:at,'system')"
+                        ),
+                        {
+                            "id": RACE_A,
+                            "alias": "missing",
+                            "compound": COMPOUND,
+                            "at": STAMP,
+                        },
+                    )
+                elif index == 1:
+                    connection.execute(
+                        text(
+                            "INSERT INTO identity_resolution (id,alias_id,decision,compound_id,decided_at,actor_kind) "
+                            "VALUES (:id,:alias,'confirmed',:compound,:at,'system')"
+                        ),
+                        {
+                            "id": RACE_A,
+                            "alias": ALIAS,
+                            "compound": "missing",
+                            "at": STAMP,
+                        },
+                    )
+                else:
+                    connection.execute(
+                        text(
+                            "INSERT INTO identity_resolution (id,alias_id,decision,compound_id,molecular_state_id,decided_at,actor_kind) "
+                            "VALUES (:id,:alias,'confirmed',:compound,:state,:at,'system')"
+                        ),
+                        {
+                            "id": RACE_A,
+                            "alias": ALIAS,
+                            "compound": COMPOUND,
+                            "state": "missing",
+                            "at": STAMP,
+                        },
+                    )
+            expected = (
+                "FOREIGN KEY constraint failed"
+                if index < 2
+                else "identity resolution state ownership mismatch"
+            )
+            assert expected in str(caught.value)
+        assert connection.scalar(text("SELECT count(*) FROM identity_resolution")) == 0
 
 
 @pytest.mark.parametrize(
