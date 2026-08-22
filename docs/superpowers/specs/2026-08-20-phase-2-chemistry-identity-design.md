@@ -274,22 +274,31 @@ SourceSystem matches [a-z0-9][a-z0-9._-]{0,127}. source_value preserves case
 and Unicode but rejects NUL, blank-only text, and values longer than 1,024
 characters. IdentityClaim validates source_system and source_value as a
 both-or-neither pair; when present they use the same length/NUL/blank rules as
-Alias. import_batch_id may be null only for an in-memory pre-import claim;
-every mutating confirmation rejects null before opening a write transaction.
+Alias. Claims with a null source pair and/or null import_batch_id remain valid
+for in-memory resolution only. confirm_claim requires a non-null import_batch_id
+and both non-null source fields, and rejects either absence before opening a
+UnitOfWork. Resolver-only claims can never be persisted as Alias evidence.
 
-IdentitySelection(existing_target) requires compound_id. Its optional state ID
-must be the exact candidate state authorized by the report. SelectionMode
-new_compound requires both IDs null and is valid only for NEW_COMPOUND. A
-selection is valid only when it is a candidate listed in the immutable report,
-the exact canonical target authorized by EXACT_STATE/NEW_STATE, or explicit
-NEW_COMPOUND creation. Arbitrary compounds, sibling states, and report/target
-substitution are rejected.
+IdentitySelection(existing_target) requires compound_id. SelectionMode
+new_compound requires both IDs null. For confirm_claim only, selection must be
+a candidate listed in the immutable report, the exact canonical target
+authorized by EXACT_STATE/NEW_STATE, or explicit NEW_COMPOUND creation.
+Arbitrary compounds, sibling states, and report/target substitution are
+rejected by confirm_claim.
 
 EXACT_STATE selection carries the report's compound and exact state IDs.
 NEW_STATE selection carries the report's matched compound ID and a null state
 ID because confirm_claim creates the canonical exact state. ALIAS_ONLY and
 AMBIGUOUS carry a report-listed compound and null state. NEW_COMPOUND carries
 no IDs.
+
+reassign and restore are explicit human overrides and do not consume a
+ResolutionReport. They require IdentitySelection(existing_target), a Compound
+that already exists, and an optional MolecularState that already exists and
+belongs to that Compound. They reject a nonexistent Compound/state and a state
+owned by a sibling Compound. restore additionally enforces a RETRACTED
+predecessor, user actor, and nonblank rationale. Their audit events contain
+both the prior and new targets.
 
 IdentityActor(user) requires a nonblank actor_id of at most 128 characters.
 IdentityActor(system) requires actor_id null. Rationale is null or nonblank and
@@ -333,8 +342,15 @@ deliberately different read surfaces.
 Structural-catalog methods query immutable Compound and MolecularState rows
 directly by state_hash, structure_hash, and generated InChIKey. They include
 all catalog rows, even when their original alias was retracted, superseded, or
-belongs to a rolled-back batch. A catalog candidate is dormant when no active
-alias-resolution currently exposes its target.
+belongs to a rolled-back batch. catalog_dormant is calculated at the candidate
+granularity:
+
+- a MolecularState candidate is active only when an active resolution targets
+  that exact molecular_state_id;
+- a Compound candidate is active when any active resolution targets its
+  compound_id, including a resolution that also targets one of its states; and
+- a compound-only active resolution activates the Compound but no sibling
+  MolecularState.
 
 The active-alias method uses a resolution projection that includes a row only
 when:
@@ -346,13 +362,15 @@ when:
   and
 - it has a non-null compound target.
 
-Only active-alias lookup applies these lifecycle filters. Structural catalog
-lookup never joins this projection. Thus an exact dormant state still yields
-EXACT_STATE with catalog_action=reuse_state and catalog_match_dormant=true,
-while its old alias remains invisible. Generated InChIKey catalog lookup is
-candidate evidence only and never authorizes automatic merge. The resolver
-remains pure because it depends on the protocol, not the storage
-implementation.
+Active-alias lookup uses these lifecycle conditions to include or exclude
+evidence. Structural catalog membership is never filtered by them; catalog
+queries use a correlated EXISTS over the same active projection only to set the
+candidate-granular catalog_dormant annotation. Thus an exact dormant state
+still yields EXACT_STATE with catalog_action=reuse_state and
+catalog_match_dormant=true, while its old alias remains invisible. Generated
+InChIKey catalog lookup is candidate evidence only and never authorizes
+automatic merge. The resolver remains pure because it depends on the protocol,
+not the storage implementation.
 
 The authority matrix is mandatory:
 
@@ -427,8 +445,9 @@ IdentityService exposes one import-facing operation:
                   claim, report, selection, actor)
 
 The clock is injected once into the IdentityService constructor and is not a
-method argument. confirm_claim rejects claim.import_batch_id=None before
-opening its one UnitOfWork. Within that transaction it validates the immutable
+method argument. confirm_claim rejects claim.import_batch_id=None or a null
+source_system/source_value pair before opening its one UnitOfWork. Within that
+transaction it validates the immutable
 report/selection/actor and authority matrix, performs only the catalog action
 declared in the report, appends Alias and root IdentityResolution, and appends
 one AuditEvent whose import_batch_id equals Alias.import_batch_id. EXACT_STATE,
@@ -446,11 +465,13 @@ The remaining mutation signatures are:
     restore(alias_id, predecessor_id, selection, actor)
 
 They append only one valid successor decision plus one batch-correlated
-AuditEvent. restore accepts only an active RETRACTED
-predecessor and explicit eligible target/user rationale; it never edits or
-deletes the retraction. They do not materialize structures, modify Alias, or
-permit a fork. No separate structure-materialization API is allowed because it
-would create an unaudited partial identity.
+AuditEvent. reassign/restore validate existing_target directly against the
+catalog without a ResolutionReport; restore accepts only an active RETRACTED
+predecessor and explicit eligible target/user rationale. Both audit prior and
+new target and never edit or delete earlier decisions. They do not materialize
+structures, modify Alias, or permit a fork. No separate structure-
+materialization API is allowed because it would create an unaudited partial
+identity.
 
 ## Test and acceptance requirements
 
@@ -464,6 +485,8 @@ RED-GREEN-REFACTOR must cover:
 - nullable InChIKey with inchi_unavailable warning/audit; empty-key rejection;
   and supplied-key-versus-SMILES conflict;
 - source-system/source-value pair validation and bounded external data;
+- resolver-only claims without batch/source pair and pre-UoW confirm_claim
+  rejection of either missing persistence prerequisite;
 - populated 0001 migration including policy/runtime columns, checks, triggers,
   partial indexes, direct SQL protection, and corrupt-row safe errors;
 - SQL source checks, UNIQUE(import_batch_id, source_system, source_value), and
@@ -472,8 +495,11 @@ RED-GREEN-REFACTOR must cover:
   winner/one typed conflict, one committed audit, and no fork;
 - reversible RETRACTED -> RESTORED chain and repeated-retraction rejection;
 - PersistentIdentityIndex deterministic catalog/active-alias queries after
-  reopen, dormant structural reuse, and alias exclusion for superseded,
-  retracted, and rolled-back evidence;
+  reopen; exact-state versus Compound dormant granularity; compound-only alias
+  not activating sibling states; and alias exclusion for superseded, retracted,
+  and rolled-back evidence;
+- report-free reassign/restore validation of nonexistent, sibling, and correct
+  existing targets plus prior/new-target audit;
 - an empty-project NEW_COMPOUND confirmation followed by EXACT_STATE reuse;
 - every authority-matrix rejection, especially exact-state sibling/downgrade;
   and

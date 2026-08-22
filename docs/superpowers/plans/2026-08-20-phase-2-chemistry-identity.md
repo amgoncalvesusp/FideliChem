@@ -59,8 +59,11 @@ SQLite, Alembic 1.x, pytest, Hypothesis, Ruff, mypy, pip-audit, uv.
 - Only exact-state evidence may bind automatically. See Task 6 authority
   matrix; reject a sibling state or compound-only downgrade for exact evidence.
 - IdentityService receives its clock only in the constructor. confirm_claim
-  rejects a null import batch and accepts CanonicalizationResult | None under
-  the report authority matrix.
+  rejects a null import batch or null source pair before opening a UoW and
+  accepts CanonicalizationResult | None under the report authority matrix.
+- Claims without a full source pair and batch are resolver-only. Report-bound
+  selection applies only to confirm_claim; human reassign/restore validates an
+  existing target directly and audits prior/new target.
 - No adapters, Import Manager, GUI, target, pose, score, MD, ML, fingerprint,
   broad tautomer enumeration, shell, network, pickle, eval, or scientific
   executable belongs in this phase.
@@ -477,7 +480,16 @@ database queries over separate immutable-catalog and active-alias surfaces.
     regardless of alias supersession/retraction/rollback;
   - active_by_alias excludes superseded roots, retracted decisions, and
     rolled-back-batch evidence; and
-  - catalog candidates with no active alias are marked catalog_dormant=true.
+  - catalog_dormant is correlated to candidate type, not merely Compound:
+    an exact state is active only when active resolution.molecular_state_id
+    equals it; a Compound is active when any active resolution targets it; and
+    a compound-only resolution leaves every sibling state dormant.
+
+  Build explicit fixtures for one Compound with states A and B. With an active
+  resolution to A, assert Compound/A active and B dormant. With a compound-only
+  active resolution, assert Compound active and A/B dormant. After retraction
+  or batch rollback, assert Compound/A/B dormant while every catalog lookup
+  still returns the rows.
 
       def test_projection_hides_withdrawn_evidence_after_reopen(project) -> None:
           index = PersistentIdentityIndex(project.engine)
@@ -502,10 +514,14 @@ database queries over separate immutable-catalog and active-alias surfaces.
   Put protocol/report values in identity/models.py. Implement
   PersistentIdentityIndex in storage/identity_index.py to accept Engine |
   SessionFactory and open owned read-only sessions. Catalog hash/generated-
-  InChI methods query Compound/MolecularState directly across all rows and use
-  an EXISTS subquery only to mark active versus dormant. active_by_alias alone
-  uses the lifecycle projection: NOT EXISTS successor, decision != retracted,
-  import_batch.status != rolled_back, and non-null compound target. Explicitly
+  InChI methods query Compound/MolecularState directly across all rows. State
+  queries use an EXISTS correlated on exact molecular_state_id; Compound
+  queries use an EXISTS correlated on compound_id, so any state target counts
+  for its owner while a compound-only target cannot activate sibling states.
+  The EXISTS annotates catalog rows but never filters catalog membership.
+  active_by_alias uses the lifecycle projection to filter evidence: NOT EXISTS
+  successor, decision != retracted, import_batch.status != rolled_back, and
+  non-null compound target. Explicitly
   ORDER BY compound ID, state ID, and resolution ID null last in every query.
 
   The class exposes no write method and does not import IdentityResolver. It
@@ -522,9 +538,10 @@ database queries over separate immutable-catalog and active-alias surfaces.
       git add src/fidelichem/identity/__init__.py src/fidelichem/identity/models.py src/fidelichem/storage/identity_index.py tests/unit/identity/test_resolution_models.py tests/integration/storage/test_persistent_identity_index.py
       git commit -m "feat: add persistent identity projection"
 
-**Review gate:** Terra reviews catalog-versus-alias SQL separation, dormant
-marking, batch rollback filtering, Engine/SessionFactory ownership, reopen
-behavior, ordering, read-only guarantee, and protocol boundaries.
+**Review gate:** Terra reviews catalog-versus-alias SQL separation, exact-state
+versus Compound dormant correlation, sibling isolation, batch rollback
+filtering, Engine/SessionFactory ownership, reopen behavior, ordering,
+read-only guarantee, and protocol boundaries.
 
 ---
 
@@ -550,7 +567,9 @@ PersistentIdentityIndex to the same pure resolver API.
   stereo/charge/tautomer state separation; result None; alias-only and
   ambiguous aliases; external InChIKey-only candidates; deterministic order;
   and no weakened evidence auto-merge. An empty index plus valid result must
-  return NEW_COMPOUND with catalog_action=create_compound.
+  return NEW_COMPOUND with catalog_action=create_compound. Repeat structural
+  resolution with import_batch_id=None and source_system/source_value=None to
+  prove persistence prerequisites are not resolver prerequisites.
 
   Test supplied SMILES with a different non-null external InChIKey ->
   CONFLICT. Test structural evidence and active alias evidence to different
@@ -558,7 +577,9 @@ PersistentIdentityIndex to the same pure resolver API.
   index: an alias hidden by supersession/retraction/rollback cannot create a
   false conflict, but an identical dormant state still returns EXACT_STATE with
   reuse_state/catalog_match_dormant=true. A dormant parent returns NEW_STATE
-  with reuse_compound/catalog_match_dormant=true.
+  with reuse_compound/catalog_match_dormant=true. When only a compound-level
+  alias is active, resolving either sibling exact state still marks that state
+  catalog match dormant; the Compound candidate alone is active.
 
   Add a static source test: resolver.py imports neither SQLAlchemy nor storage
   and its public class has no add/save/commit/write/delete method.
@@ -626,8 +647,12 @@ There is no separate public structure-materialization operation.
   A NEW_COMPOUND call must add Compound, exact state, Alias, root resolution,
   and one AuditEvent in one UoW. Use failpoints before first chemistry flush,
   after state flush, after alias/resolution flush, and before audit flush; every
-  failed call leaves all five categories absent. Reject import_batch_id=None
-  before UoW creation. Assert no mutation method accepts a clock parameter.
+  failed call leaves all five categories absent. With a spy UoW factory, reject
+  before UoW creation both (a) a full source pair with import_batch_id=None and
+  (b) a non-null batch with source_system/source_value both null. Confirm a
+  claim only when batch and both source fields are present. Claims without the
+  persistence triple remain usable in resolver unit tests. Assert no mutation
+  method accepts a clock parameter.
 
   Assert audit_event.import_batch_id equals alias.import_batch_id and
   new_value_json contains policy ID, RDKit/InChI version, state/parent hash,
@@ -650,14 +675,21 @@ There is no separate public structure-materialization operation.
   - CONFLICT requires user actor, a candidate listed in report, and rationale.
   - UNRESOLVED cannot bind.
 
-  Reject a selection absent from report, mismatched catalog action, arbitrary
-  compound, wrong sibling state, system override, missing/overlong actor ID or
-  rationale, and a report/result hash mismatch. Prove catalog reuse and dormant
-  reuse exactly match report fields and audit fields; never silently convert a
-  NEW_COMPOUND report into NEW_STATE or EXACT_STATE.
+  For confirm_claim, reject a selection absent from report, mismatched catalog
+  action, arbitrary compound, wrong sibling state, system override,
+  missing/overlong actor ID or rationale, and a report/result hash mismatch.
+  Prove catalog reuse and dormant reuse exactly match report fields and audit
+  fields; never silently convert a NEW_COMPOUND report into NEW_STATE or
+  EXACT_STATE.
 
   Prove retraction then RESTORED appends a target/user/rationale successor while
-  keeping both old rows; repeated retract fails. Run barrier races for the same
+  keeping both old rows; repeated retract fails. reassign/restore take no
+  report: test nonexistent Compound, nonexistent state, state owned by another
+  Compound, and a correct existing Compound/optional-owned-state selection.
+  Reject the first three before append; accept the last and assert audit JSON
+  contains exact prior and new targets.
+
+  Run barrier races for the same
   batch/source alias tuple and for two reassign/retract/restore successors of
   one active resolution. Exactly one action succeeds; the alias loser gets
   AliasConflictError and a chain loser gets IdentityResolutionConflictError.
@@ -674,8 +706,9 @@ There is no separate public structure-materialization operation.
 - [ ] **Step 3: Implement one-UoW mutation and chain methods.**
 
   Inject a UoW factory, persistent index factory, clock, and bounded failpoint
-  callback only into the constructor. confirm_claim rejects a null batch,
-  validates result/report/selection/actor, opens one UoW, and performs exactly
+  callback only into the constructor. confirm_claim requires non-null batch,
+  source_system, and source_value before constructing a UoW, then validates
+  result/report/selection/actor, opens one UoW, and performs exactly
   report.catalog_action. It then appends Alias/root decision and one AuditEvent.
   Set event import_batch_id from Alias, canonicalize audit JSON, and include
   inchi_unavailable, catalog dormant/reuse, and actor information. ALIAS_ONLY/
@@ -684,8 +717,10 @@ There is no separate public structure-materialization operation.
 
   reassign/retract/restore query the active row, validate the transition and
   user actor/rationale, append a same-alias successor and one batch-correlated
-  audit event, and never update Alias or an existing decision. restore accepts
-  only RETRACTED and an eligible pre-existing target; retract accepts only a
+  audit event, and never update Alias or an existing decision. reassign/restore
+  do not accept a report: require existing_target, load Compound and optional
+  state, verify state.compound_id equals selection.compound_id, and audit prior
+  and new targets. restore accepts only RETRACTED; retract accepts only a
   targeted active decision.
   Convert duplicate-alias conflict to AliasConflictError and chain
   uniqueness/trigger conflict to IdentityResolutionConflictError after
@@ -703,8 +738,9 @@ There is no separate public structure-materialization operation.
       git commit -m "feat: add atomic audited identity confirmation"
 
 **Review gate:** Terra reviews exact confirm_claim signature/constructor clock,
-all-or-nothing behavior, batch/alias requirements, report-selection authority,
-NEW_COMPOUND and dormant/race reuse audit, actor rules, concurrent writers, and
+pre-UoW batch/source requirements, confirm-only report authority, report-free
+mutation target ownership/audit, all-or-nothing behavior, NEW_COMPOUND and
+dormant/race reuse audit, actor rules, concurrent writers, and
 RETRACTED/RESTORED reversibility.
 
 ---
@@ -738,8 +774,9 @@ checkpoint for Phase 3 exploration.
   Create a new exact state of the same parent and prove NEW_STATE reuses the
   parent. Confirm an alias-only claim with result=None against a report-listed
   existing compound and prove no catalog row is added. Reject the same call
-  with import_batch_id=None and reject an arbitrary existing target not in the
-  report.
+  before UoW creation with import_batch_id=None or with both source fields null;
+  first prove those claims remain resolver-usable. Reject an arbitrary existing
+  target not in the report.
 
   Attempt a two-organic co-crystal and non-Completed tautomer status; assert
   neither writes chemistry/alias/resolution/audit rows. Submit alias plus
@@ -771,8 +808,10 @@ checkpoint for Phase 3 exploration.
   rule, enumerator limits/status, formula/mass units, policy evolution, and
   non-goals. ADR 0005 states NEW_COMPOUND/NEW_STATE/EXACT_STATE completeness,
   immutable-catalog versus active-alias lookup, dormant reuse, InChI evidence,
-  IdentitySelection/IdentityActor authority, exact confirm_claim signature,
-  constructor-only clock, alias uniqueness, atomic audit/races, and explicit
+  IdentitySelection/IdentityActor authority, confirm-only report binding,
+  report-free human mutation validation, exact confirm_claim signature,
+  constructor-only clock, source-pair/batch persistence boundary, alias
+  uniqueness, candidate-granular dormant SQL, atomic audit/races, and explicit
   RETRACTED -> RESTORED chain rules. Update README/changelog only with verified
   behavior.
 
