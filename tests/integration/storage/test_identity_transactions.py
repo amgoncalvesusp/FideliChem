@@ -269,3 +269,68 @@ def test_caller_owned_identity_failure_recovers_after_explicit_rollback(
         assert recovered.get(alias.id) == alias
         recovered.add(alias.model_copy(update={"id": ROOT_ID, "source_value": "456"}))
         session.commit()
+
+
+def test_locked_alias_flush_fails_closed_then_retries_as_typed_conflict(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(project.id)
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+    alias = _alias(batch.id, RACE_A)
+    factory = create_session_factory(migrated_engine)
+    with factory() as winner, factory() as loser:
+        AliasRepository(winner).add(alias)
+        loser.connection().exec_driver_sql("PRAGMA busy_timeout=0")
+        repository = AliasRepository(loser)
+        with pytest.raises(StorageWriteError) as raised:
+            repository.add(alias.model_copy(update={"id": RACE_B}))
+        assert raised.value.__cause__ is None
+        assert "sql" not in str(raised.value).lower()
+        with pytest.raises(UnitOfWorkError, match="failed"):
+            repository.get(alias.id)
+        winner.commit()
+        loser.rollback()
+        with pytest.raises(AliasConflictError) as conflict:
+            AliasRepository(loser).add(alias.model_copy(update={"id": RACE_B}))
+        assert str(conflict.value) == "identity alias conflicts with an existing record"
+        assert conflict.value.__cause__ is None
+        loser.rollback()
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM alias")) == 1
+
+
+def test_locked_resolution_flush_fails_closed_then_retries_as_typed_conflict(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(project.id)
+    alias = _alias(batch.id, RACE_A)
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.aliases.add(alias)
+    factory = create_session_factory(migrated_engine)
+    with factory() as winner, factory() as loser:
+        IdentityResolutionRepository(winner).add(_root(alias.id, RACE_A))
+        loser.connection().exec_driver_sql("PRAGMA busy_timeout=0")
+        repository = IdentityResolutionRepository(loser)
+        with pytest.raises(StorageWriteError) as raised:
+            repository.add(_root(alias.id, RACE_B))
+        assert raised.value.__cause__ is None
+        assert "sql" not in str(raised.value).lower()
+        winner.commit()
+        loser.rollback()
+        with pytest.raises(IdentityResolutionConflictError) as conflict:
+            IdentityResolutionRepository(loser).add(_root(alias.id, RACE_B))
+        assert (
+            str(conflict.value)
+            == "identity resolution conflicts with the existing chain"
+        )
+        assert conflict.value.__cause__ is None
+        loser.rollback()
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM identity_resolution")) == 1

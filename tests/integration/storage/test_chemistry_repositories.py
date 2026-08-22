@@ -21,6 +21,7 @@ from fidelichem.storage.repositories import (
     CorruptStoredDataError,
     DuplicateRecordError,
     ForeignKeyViolationError,
+    StorageIntegrityError,
 )
 from fidelichem.storage.session import (
     UnitOfWork,
@@ -37,6 +38,7 @@ NEXT_ID = "55555555-5555-4555-8555-555555555555"
 ALIAS_2_ID = "66666666-6666-4666-8666-666666666666"
 ROOT_2_ID = "77777777-7777-4777-8777-777777777777"
 STATE_2_ID = "88888888-8888-4888-8888-888888888888"
+STATE_3_ID = "99999999-9999-4999-8999-999999999999"
 ALIAS_3_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 ROOT_3_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 RETRACT_3_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
@@ -204,6 +206,32 @@ def test_alias_natural_conflict_is_distinct_from_primary_key_conflict(
     primary_key_conflict = alias.model_copy(update={"source_value": "different"})
     with pytest.raises(DuplicateRecordError), UnitOfWork(migrated_engine) as uow:
         uow.aliases.add(primary_key_conflict)
+
+
+def test_identity_primary_key_and_other_check_have_exact_public_types(
+    migrated_engine: Engine,
+) -> None:
+    _, batch, alias, compound = _seed_identity(migrated_engine)
+    second_alias = alias.model_copy(update={"id": ALIAS_2_ID, "source_value": "456"})
+    with UnitOfWork(migrated_engine) as uow:
+        uow.aliases.add(second_alias)
+    with pytest.raises(DuplicateRecordError) as duplicate, UnitOfWork(
+        migrated_engine
+    ) as uow:
+        uow.identity_resolutions.add(
+            _resolution(second_alias.id, resolution_id=ROOT_ID)
+        )
+    assert str(duplicate.value) == "identity resolution already exists"
+    assert duplicate.value.__cause__ is None
+    valid = _compound("55555555-5555-4555-8555-555555555555", digest="d" * 64)
+    invalid = Compound.model_construct(**{**valid.model_dump(), "formula": ""})
+    with pytest.raises(StorageIntegrityError) as integrity, UnitOfWork(
+        migrated_engine
+    ) as uow:
+        uow.compounds.add(invalid)
+    assert str(integrity.value) == "compound violates storage integrity"
+    assert integrity.value.__cause__ is None
+    del batch, compound
 
 
 def test_resolution_chain_conflicts_are_typed(migrated_engine: Engine) -> None:
@@ -383,7 +411,7 @@ def test_state_ownership_and_state_hash_conflicts_are_typed(
         uow.identity_resolutions.add(bad_ownership)
     with pytest.raises(DuplicateRecordError), UnitOfWork(migrated_engine) as uow:
         uow.molecular_states.add(
-            _state(compound.id).model_copy(update={"id": STATE_2_ID})
+            _state(compound.id).model_copy(update={"id": STATE_3_ID})
         )
     del project, batch
 
@@ -418,11 +446,25 @@ def test_populated_provenance_and_deterministic_identity_lists(
         uow.aliases.add(alias)
         uow.identity_resolutions.add(_resolution(alias_2.id, resolution_id=ROOT_2_ID))
         uow.identity_resolutions.add(_resolution(alias.id))
+        successor = _resolution(
+            alias.id,
+            resolution_id="00000000-0000-4000-8000-000000000000",
+            decision=IdentityDecision.REASSIGNED,
+            supersedes_id=ROOT_ID,
+        ).model_copy(update={"decided_at": NOW.replace(minute=13)})
+        uow.identity_resolutions.add(successor)
         assert uow.aliases.list_by_batch(batch.id) == (alias, alias_2)
-        assert uow.identity_resolutions.list_by_alias(alias.id) == (_resolution(),)
+        assert uow.identity_resolutions.list_by_alias(alias.id) == (
+            _resolution(),
+            successor,
+        )
     with UnitOfWork(migrated_engine) as uow:
         assert uow.compounds.get(compound.id) == compound
         assert uow.molecular_states.get(state.id) == state
+        assert uow.identity_resolutions.list_by_alias(alias.id) == (
+            _resolution(),
+            successor,
+        )
 
 
 def test_corrupt_state_alias_and_resolution_rows_are_safe(
