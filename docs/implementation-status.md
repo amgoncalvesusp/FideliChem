@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: Task 7 — confirmação atômica auditada e cadeias reversíveis
-- Próxima ação exata: implementar por TDD a Task 7 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `4bb6211`.
+- Etapa ativa: pausa solicitada após a conclusão da Task 7
+- Próxima ação exata: iniciar por TDD a Task 8 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir do checkpoint atual, somente quando solicitado.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -18,7 +18,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–6 concluídas; Task 7 (serviço atômico/auditado) é o próximo marco. |
+| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–7 concluídas; Task 8 (workflow/ADRs/gate integral) ainda não iniciada. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -36,15 +36,17 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Último gate verificado
 
-Fase 1, gate final em 2026-08-20:
+Task 7 da Fase 2, gate final em 2026-08-22:
 
-- `pytest`: 189 testes aprovados;
-- cobertura global de branches: 89,24%;
-- cobertura scoped de `domain/provenance/storage/projects`: 89,07% (166 testes);
-- Ruff e mypy: aprovados;
-- `uv lock`, build e `pip check`: aprovados;
+- `pytest`: 453 testes aprovados;
+- cobertura global de branches: 89,67%; serviço de identidade: 82,06%;
+- 29 testes focados de serviço/audit/concorrência aprovados;
+- races e interposers: 5/5 repetições locais (45 execuções) e seis races
+  repetidas 10 vezes pelo reviewer (60 execuções), sem flake;
+- Ruff, mypy, `uv lock`, build e `pip check`: aprovados;
 - `pip-audit`: nenhuma vulnerabilidade conhecida nas dependências publicadas;
-- working tree e `git diff --check`: limpos.
+- working tree e `git diff --check`: limpos;
+- review Terra final: GO, zero Critical, Important ou Minor.
 
 ## Decisões congeladas da Fase 1
 
@@ -286,6 +288,29 @@ Fase 1, gate final em 2026-08-20:
   carga/protômero e tautômero.
 - Gate: Ruff, mypy, lock, pip-audit, build, pip check e diff check aprovados;
   review final GO sem Critical, Important ou Minor.
+
+### Task 7 — confirmação atômica auditada e cadeias reversíveis
+
+- Estado: concluída, validada e aprovada em review Terra final.
+- Commits: `581ad7f` (implementação), `918d66a` (autoridade viva e matriz de
+  concorrência) e `a2cf55b` (fechamento TOCTOU e auditoria completa).
+- Resultado: 453 testes completos; cobertura global de branches 89,67% e
+  `identity/service.py` com 82,06% de branches.
+- Entregue: `confirm_claim` com assinatura congelada, uma UoW e auditoria
+  batch-correlated; NEW_COMPOUND/NEW_STATE/EXACT_STATE, alias-only, ambiguous e
+  conflict sob matriz explícita de seleção/ator/rationale.
+- Atomicidade: quatro failpoints deixam zero Compound, MolecularState, Alias,
+  IdentityResolution e AuditEvent; reassign/retract/restore são append-only,
+  report-free, validam ownership e rejeitam lineage rolled back.
+- Concorrência: `BEGIN IMMEDIATE` reserva o writer antes da revalidação viva;
+  races estruturais equivalentes registram `reuse_after_race=true`; alias
+  interposto conflitante falha sem linhas/audit extras; races de alias,
+  NEW_STATE, reassign, retract e restore produzem um vencedor e nenhum fork.
+- Auditoria: JSON canônico fixa policy/runtime InChI/RDKit, hashes, warnings,
+  ação/kind/dormência/race, target, ator/rationale e targets anterior/novo.
+- Gate: Ruff, mypy, lock, pip-audit, build, pip check e diff check aprovados;
+  review Terra final GO sem Critical, Important ou Minor.
+- Continuidade: Task 8 não foi iniciada por solicitação do usuário.
 
 ## Convenções de continuidade
 
