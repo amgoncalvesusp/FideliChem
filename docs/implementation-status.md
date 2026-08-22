@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: Task 5 — valores do resolver e índice persistente somente-leitura
-- Próxima ação exata: implementar por TDD a Task 5 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `5067aae`.
+- Etapa ativa: Task 6 — resolver puro com matriz explícita de autoridade
+- Próxima ação exata: implementar por TDD a Task 6 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `0ebaa0d`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -18,7 +18,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–4 concluídas; Task 5 (valores/índice persistente) é o próximo marco. |
+| 2 — Chemistry + Identity Resolver | Em andamento | Tasks 1–5 concluídas; Task 6 (resolver puro) é o próximo marco. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -240,6 +240,28 @@ Fase 1, gate final em 2026-08-20:
   explícito e conflitos tipados; testes de lock passaram 20/20 repetições.
 - Boundary: classificação isolada de tuple natural, PK/hash, FK, cadeia e
   transições de resolução e demais CHECKs; corrupção segura nos quatro mappers.
+- Gate: Ruff, mypy, lock, pip-audit, build, pip check e diff check aprovados;
+  review final GO sem Critical, Important ou Minor.
+
+### Task 5 — valores do resolver e índice persistente somente-leitura
+
+- Estado: concluída e aprovada após hardening adversarial integral e review GO.
+- Commits: `027cff5` (implementação), `8ec3b50`, `3bf40ba`, `700344e`,
+  `9aa453e`, `4dc1a32`, `8265a0e` e `0ebaa0d` (validação científica,
+  lifecycle e cadeias persistidas).
+- Resultado: 394 testes completos; cobertura focada de branches 91,50%;
+  `identity_index.py` com 89% de cobertura no gate final.
+- Entregue: valores/protocolo imutáveis; matriz total de ações de catálogo;
+  `PersistentIdentityIndex` estritamente somente-leitura para Engine ou
+  SessionFactory; catálogo permanente separado da projeção ativa; ordenação
+  determinística e dormência por candidato exato.
+- Segurança científica: Compound, MolecularState, IdentityResolution,
+  ImportBatch, aliases e cadeias completas são validados antes de emitir
+  candidatas; corrupção, owners/targets ausentes, ciclos, forks, cross-alias e
+  batches órfãos falham com erro público seguro.
+- Lifecycle: retraction, restore, supersession e rollback lógico preservam o
+  catálogo e ocultam somente evidência inativa; cadeias válidas profundas e
+  `confirmed→retracted→restored` retornam apenas a folha ativa.
 - Gate: Ruff, mypy, lock, pip-audit, build, pip check e diff check aprovados;
   review final GO sem Critical, Important ou Minor.
 
