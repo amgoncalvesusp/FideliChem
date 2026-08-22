@@ -15,7 +15,7 @@ from fidelichem.domain.chemistry import (
     IdentityResolution,
     MolecularState,
 )
-from fidelichem.domain.models import ActorKind
+from fidelichem.domain.models import ActorKind, ImportBatch
 from fidelichem.identity.models import (
     EvidenceKind,
     ResolutionCandidate,
@@ -32,6 +32,7 @@ from .repositories import (
     CorruptStoredDataError,
     RepositoryError,
     StorageReadError,
+    _batch_model,
     _safe_read,
 )
 from .session import SessionFactory
@@ -197,27 +198,25 @@ def _active_alias_candidates(
     superseded_ids: set[str] = set()
     for resolution, state, compound, batch in rows:
         resolution_value = _validate_resolution_row(session, resolution)
-        _validate_batch_status(batch.status)
+        batch_value = _validated_batch(batch)
+        _validate_chain_node(session, resolution, batch, set(), set())
         validated[resolution.id] = (
             resolution,
             state,
             compound,
-            batch,
+            batch_value,
             resolution_value,
         )
     for resolution, _, _, _, _ in validated.values():
         successors = _successors(session, resolution.id)
         if successors:
             superseded_ids.add(resolution.id)
-        for successor, successor_batch in successors:
-            _validate_batch_status(successor_batch.status)
-            _validate_resolution_row(session, successor)
     candidates = []
     for resolution, state, compound, batch, resolution_value in validated.values():
         if (
             resolution_value.decision is not IdentityDecision.RETRACTED
             and resolution_value.compound_id is not None
-            and batch.status in {"in_progress", "completed", "failed"}
+            and batch.status.value in {"in_progress", "completed", "failed"}
             and resolution.id not in superseded_ids
         ):
             candidates.append(_active_candidate(resolution, state, compound))
@@ -278,19 +277,14 @@ def _catalog_target_active(session: Session, statement: Any) -> bool:
     active = False
     for resolution, batch in contributors:
         resolution_value = _validate_resolution_row(session, resolution)
+        batch_value = _validated_batch(batch)
+        _validate_chain_node(session, resolution, batch, set(), set())
         successors = _successors(session, resolution.id)
-        if successors:
-            active_successor = True
-            for successor, successor_batch in successors:
-                _validate_batch_status(successor_batch.status)
-                _validate_resolution_row(session, successor)
-        else:
-            active_successor = False
-        _validate_batch_status(batch.status)
+        active_successor = bool(successors)
         if (
             resolution_value.decision is not IdentityDecision.RETRACTED
             and resolution_value.compound_id is not None
-            and batch.status in {"in_progress", "completed", "failed"}
+            and batch_value.status.value in {"in_progress", "completed", "failed"}
             and not active_successor
         ):
             active = True
@@ -309,9 +303,61 @@ def _successors(
     return tuple(session.execute(statement).tuples().all())
 
 
-def _validate_batch_status(status: str) -> None:
-    if status not in {"in_progress", "completed", "failed", "rolled_back"}:
+def _batch_for_resolution(
+    session: Session, row: _IdentityResolutionRow
+) -> _ImportBatchRow:
+    statement = (
+        select(_ImportBatchRow)
+        .join(_AliasRow, _AliasRow.import_batch_id == _ImportBatchRow.id)
+        .where(_AliasRow.id == row.alias_id)
+    )
+    batch = session.execute(statement).scalar_one_or_none()
+    if batch is None:
         raise CorruptStoredDataError("stored identity resolution data is invalid")
+    return batch
+
+
+def _validated_batch(row: _ImportBatchRow) -> ImportBatch:
+    try:
+        return _batch_model(row)
+    except CorruptStoredDataError:
+        raise CorruptStoredDataError(
+            "stored identity resolution data is invalid"
+        ) from None
+
+
+def _validate_chain_node(
+    session: Session,
+    row: _IdentityResolutionRow,
+    batch: _ImportBatchRow,
+    visiting: set[str],
+    visited: set[str],
+) -> None:
+    if row.id in visiting:
+        raise CorruptStoredDataError("stored identity resolution data is invalid")
+    if row.id in visited:
+        return
+    visiting.add(row.id)
+    _validate_resolution_row(session, row)
+    _validated_batch(batch)
+    if row.supersedes_id is not None:
+        predecessor = session.get(_IdentityResolutionRow, row.supersedes_id)
+        if predecessor is None or predecessor.alias_id != row.alias_id:
+            raise CorruptStoredDataError("stored identity resolution data is invalid")
+        predecessor_batch = _batch_for_resolution(session, predecessor)
+        _validate_resolution_row(session, predecessor)
+        _validated_batch(predecessor_batch)
+    successors = _successors(session, row.id)
+    if len(successors) > 1:
+        raise CorruptStoredDataError("stored identity resolution data is invalid")
+    for successor, successor_batch in successors:
+        if successor.alias_id != row.alias_id:
+            raise CorruptStoredDataError("stored identity resolution data is invalid")
+        _validate_chain_node(
+            session, successor, successor_batch, visiting, visited
+        )
+    visiting.remove(row.id)
+    visited.add(row.id)
 
 
 def _validate_resolution_row(

@@ -144,7 +144,7 @@ def test_catalog_and_active_projection_reopen_dormant_siblings(
     assert state_rows[0].molecular_state_id == STATE_A_ID
     assert state_rows[0].catalog_dormant is False
     sibling = index.catalog_by_state_hash("c" * 64)[0]
-    assert sibling.catalog_dormant is True
+    assert sibling.catalog_dormant is True, "State B must remain dormant"
     active = index.active_by_alias("gold", "ligand_17")
     assert len(active) == 1
     assert active[0].molecular_state_id == STATE_A_ID
@@ -186,7 +186,7 @@ def test_compound_only_resolution_dormancy_is_not_inherited_by_siblings(
     assert index.catalog_by_state_hash("c" * 64)[0].catalog_dormant is True
 
 
-def test_active_alias_order_is_state_first_and_null_state_last(
+def test_active_alias_order_duplicate_resolution_ids_state_first_null_last(
     migrated_engine: Engine,
 ) -> None:
     project = _project()
@@ -200,11 +200,18 @@ def test_active_alias_order_is_state_first_and_null_state_last(
         "13131313-1313-4313-8313-131313131313",
         ImportStatus.COMPLETED,
     )
+    third_batch = _batch(
+        project.id,
+        "20202020-2020-4020-8020-202020202020",
+        ImportStatus.COMPLETED,
+    )
     second_alias_id = "14141414-1414-4414-8414-141414141414"
+    third_alias_id = "21212121-2121-4121-8121-212121212121"
     with UnitOfWork(migrated_engine) as uow:
         uow.projects.add(project)
         uow.import_batches.add(first_batch)
         uow.import_batches.add(second_batch)
+        uow.import_batches.add(third_batch)
         uow.compounds.add(_compound())
         uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
         uow.aliases.add(_alias(first_batch.id))
@@ -217,6 +224,15 @@ def test_active_alias_order_is_state_first_and_null_state_last(
                 created_at=NOW,
             )
         )
+        uow.aliases.add(
+            Alias(
+                id=third_alias_id,
+                source_system="gold",
+                source_value="ligand_17",
+                import_batch_id=third_batch.id,
+                created_at=NOW,
+            )
+        )
         uow.identity_resolutions.add(_resolution())
         uow.identity_resolutions.add(
             _resolution(
@@ -225,13 +241,24 @@ def test_active_alias_order_is_state_first_and_null_state_last(
                 molecular_state_id=None,
             )
         )
+        uow.identity_resolutions.add(
+            _resolution(
+                alias_id=third_alias_id,
+                resolution_id="20202020-2020-4020-8020-202020202020",
+            )
+        )
 
     active = PersistentIdentityIndex(migrated_engine).active_by_alias(
         "gold", "ligand_17"
     )
     assert [candidate.molecular_state_id for candidate in active] == [
         STATE_A_ID,
+        STATE_A_ID,
         None,
+    ]
+    assert [candidate.resolution_id for candidate in active[:2]] == [
+        "20202020-2020-4020-8020-202020202020",
+        ROOT_ID,
     ]
 
 
@@ -418,6 +445,7 @@ def test_index_public_surface_is_select_only() -> None:
         token in source.read_text(encoding="utf-8").lower().split()
         for token in ("insert", "update", "delete")
     )
+    assert "exec_driver_sql" not in source.read_text(encoding="utf-8")
 
 
 def test_index_accepts_session_factory(migrated_engine: Engine) -> None:

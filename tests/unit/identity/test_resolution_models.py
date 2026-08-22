@@ -116,6 +116,16 @@ def test_report_rejects_non_authoritative_action_for_every_kind(
         )
 
 
+def test_NONE_dormant_true_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        ResolutionReport(
+            kind=ResolutionKind.UNRESOLVED,
+            reason=ResolutionReason.UNRESOLVED,
+            catalog_action=CatalogAction.NONE,
+            catalog_match_dormant=True,
+        )
+
+
 def test_report_candidates_are_sorted_deterministically() -> None:
     later = ResolutionCandidate(
         compound_id=COMPOUND,
