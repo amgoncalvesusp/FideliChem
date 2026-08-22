@@ -38,11 +38,15 @@ class ChemistryError(DomainError):
 
     default_code = "CHEMISTRY_ERROR"
     code = default_code
+    public_message = "chemistry operation failed"
 
-    def __init__(self, message: str | None = None, *, code: str | None = None):
-        self.code = code or self.default_code
+    def __init__(self) -> None:
         self.diagnostic_code = self.code
-        super().__init__(message or self.code)
+        super().__init__(self.public_message)
+
+    @property
+    def message(self) -> str:
+        return self.public_message
 
 
 class InvalidStructureError(ChemistryError):
@@ -50,6 +54,7 @@ class InvalidStructureError(ChemistryError):
 
     default_code = "CHEMISTRY_INVALID_STRUCTURE"
     code = default_code
+    public_message = "input structure is invalid"
 
 
 class TautomerEnumerationLimitError(ChemistryError):
@@ -57,6 +62,7 @@ class TautomerEnumerationLimitError(ChemistryError):
 
     default_code = "CHEMISTRY_TAUTOMER_ENUMERATION_INCOMPLETE"
     code = default_code
+    public_message = "tautomer enumeration did not complete"
 
 
 class AmbiguousParentStructureError(ChemistryError):
@@ -64,15 +70,39 @@ class AmbiguousParentStructureError(ChemistryError):
 
     default_code = "CHEMISTRY_PARENT_MULTIORGANIC"
     code = default_code
+    public_message = "structure has an ambiguous organic parent"
 
 
-class AliasConflictError(DomainError):
+class NoOrganicParentStructureError(ChemistryError):
+    """A structure has no carbon-containing organic component."""
+
+    default_code = "CHEMISTRY_PARENT_NO_ORGANIC"
+    code = default_code
+    public_message = "structure has no organic parent"
+
+
+class ParentPolicyMismatchError(ChemistryError):
+    """RDKit's parent representative violates the configured policy."""
+
+    default_code = "CHEMISTRY_PARENT_POLICY_MISMATCH"
+    code = default_code
+    public_message = "structure parent policy could not be applied"
+
+
+class AliasConflictError(ChemistryError):
     """A source alias conflicts with an existing identity record."""
 
     code = "IDENTITY_ALIAS_CONFLICT"
+    public_message = "identity alias conflicts with an existing record"
 
 
-class IdentityResolutionConflictError(DomainError):
+class IdentityResolutionConflictError(ChemistryError):
     """An append-only identity decision chain has a concurrent conflict."""
 
     code = "IDENTITY_RESOLUTION_CONFLICT"
+    public_message = "identity resolution conflicts with the existing chain"
+
+
+NoOrganicStructureError = NoOrganicParentStructureError
+NoOrganicParentError = NoOrganicParentStructureError
+FragmentParentPolicyError = ParentPolicyMismatchError

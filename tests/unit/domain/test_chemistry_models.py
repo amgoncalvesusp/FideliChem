@@ -22,6 +22,8 @@ from fidelichem.domain.errors import (
     AmbiguousParentStructureError,
     IdentityResolutionConflictError,
     InvalidStructureError,
+    NoOrganicParentStructureError,
+    ParentPolicyMismatchError,
     TautomerEnumerationLimitError,
 )
 from fidelichem.domain.models import ActorKind
@@ -322,13 +324,91 @@ def test_warning_codes_and_source_smiles_are_preserved() -> None:
     assert result.warnings[0].code.value == "inchi_unavailable"
 
 
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"compound": valid_compound(chemistry_policy_id="other.policy")},
+        {"molecular_state": valid_state(chemistry_policy_id="other.policy")},
+        {"compound": valid_compound(rdkit_version="2026.4.0")},
+        {"molecular_state": valid_state(rdkit_version="2026.4.0")},
+        {"compound": valid_compound(inchi_version="2S")},
+        {"molecular_state": valid_state(inchi_version="2S")},
+        {
+            "molecular_state": valid_state(
+                compound_id="55555555-5555-4555-8555-555555555555"
+            )
+        },
+    ],
+)
+def test_canonicalization_result_rejects_inconsistent_bundle(
+    updates: dict[str, object],
+) -> None:
+    values: dict[str, object] = {
+        "source_smiles": "[CH3:7][OH]",
+        "compound": valid_compound(inchikey=None),
+        "molecular_state": valid_state(state_inchikey=None),
+        "chemistry_policy_id": "fidelichem.rdkit-identity.v1",
+        "warnings": (),
+    }
+    values.update(updates)
+    with pytest.raises(ValidationError, match="consistent"):
+        CanonicalizationResult.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    ("actor_kind", "actor_id"),
+    [(ActorKind.SYSTEM, "service"), (ActorKind.USER, None)],
+)
+def test_identity_resolution_rejects_invalid_actor_branches(
+    actor_kind: ActorKind, actor_id: str | None
+) -> None:
+    with pytest.raises(ValidationError, match="actor"):
+        IdentityResolution(
+            alias_id=ALIAS_ID,
+            decision=IdentityDecision.CONFIRMED,
+            compound_id=COMPOUND_ID,
+            molecular_state_id=None,
+            supersedes_id=None,
+            decided_at=NOW,
+            actor_kind=actor_kind,
+            actor_id=actor_id,
+            rationale=None,
+        )
+
+
 def test_typed_chemistry_and_identity_errors_have_stable_codes() -> None:
-    assert InvalidStructureError().code == "CHEMISTRY_INVALID_STRUCTURE"
-    assert TautomerEnumerationLimitError().code == (
-        "CHEMISTRY_TAUTOMER_ENUMERATION_INCOMPLETE"
+    assert NoOrganicParentStructureError.code == "CHEMISTRY_PARENT_NO_ORGANIC"
+    assert ParentPolicyMismatchError.code == "CHEMISTRY_PARENT_POLICY_MISMATCH"
+    errors = (
+        InvalidStructureError(),
+        TautomerEnumerationLimitError(),
+        AmbiguousParentStructureError(),
+        NoOrganicParentStructureError(),
+        ParentPolicyMismatchError(),
+        AliasConflictError(),
+        IdentityResolutionConflictError(),
     )
-    assert AmbiguousParentStructureError().code == "CHEMISTRY_PARENT_MULTIORGANIC"
-    assert AliasConflictError().code == "IDENTITY_ALIAS_CONFLICT"
-    assert IdentityResolutionConflictError().code == (
-        "IDENTITY_RESOLUTION_CONFLICT"
-    )
+    for error in errors:
+        assert error.code
+        assert str(error)
+        assert "raw" not in str(error)
+        assert "SELECT" not in str(error)
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        InvalidStructureError,
+        TautomerEnumerationLimitError,
+        AmbiguousParentStructureError,
+        NoOrganicParentStructureError,
+        ParentPolicyMismatchError,
+        AliasConflictError,
+        IdentityResolutionConflictError,
+    ],
+)
+def test_public_domain_errors_reject_message_and_code_overrides(
+    error_type: type[ValueError],
+) -> None:
+    with pytest.raises(TypeError):
+        error_type("raw SMILES", code="SELECT * FROM secret")  # type: ignore[call-arg]

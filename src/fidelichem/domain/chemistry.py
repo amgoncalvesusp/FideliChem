@@ -206,10 +206,17 @@ class CanonicalizationResult(DomainModel):
     @model_validator(mode="after")
     def _validate_policy_consistency(self) -> CanonicalizationResult:
         if (
-            self.compound.chemistry_policy_id != self.chemistry_policy_id
+            self.molecular_state.compound_id != self.compound.id
+            or (
+                self.compound.chemistry_policy_id
+                != self.molecular_state.chemistry_policy_id
+            )
+            or self.compound.chemistry_policy_id != self.chemistry_policy_id
             or self.molecular_state.chemistry_policy_id != self.chemistry_policy_id
+            or self.compound.rdkit_version != self.molecular_state.rdkit_version
+            or self.compound.inchi_version != self.molecular_state.inchi_version
         ):
-            raise ValueError("chemistry policy must match all canonical values")
+            raise ValueError("canonicalization values are not mutually consistent")
         return self
 
 
