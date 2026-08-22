@@ -20,6 +20,14 @@ _INCHI = (
     "substr({column}, 16, 10) NOT GLOB '*[^A-Z]*' AND "
     "substr({column}, 27, 1) GLOB '[A-Z]')"
 )
+_SQL_STRIP_CHARS = (
+    "char(9,10,11,12,13,28,29,30,31,32,133,160,5760,8192,8193,8194,8195,8196,"
+    "8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)"
+)
+
+
+def _sql_nonblank(column: str) -> str:
+    return f"length(trim({column}, {_SQL_STRIP_CHARS})) > 0"
 
 
 def upgrade() -> None:  # pragma: no cover
@@ -39,25 +47,28 @@ def upgrade() -> None:  # pragma: no cover
         sa.PrimaryKeyConstraint("id", name="pk_compound"),
         sa.UniqueConstraint("structure_hash", name="uq_compound_structure_hash"),
         sa.CheckConstraint(
-            "length(trim(canonical_smiles)) > 0", name="ck_compound_canonical_smiles"
+            _sql_nonblank("canonical_smiles"), name="ck_compound_canonical_smiles"
         ),
         sa.CheckConstraint(
-            "length(trim(isomeric_smiles)) > 0", name="ck_compound_isomeric_smiles"
+            _sql_nonblank("isomeric_smiles"), name="ck_compound_isomeric_smiles"
         ),
-        sa.CheckConstraint("length(trim(formula)) > 0", name="ck_compound_formula"),
-        sa.CheckConstraint("molecular_weight > 0", name="ck_compound_molecular_weight"),
+        sa.CheckConstraint(_sql_nonblank("formula"), name="ck_compound_formula"),
+        sa.CheckConstraint(
+            "molecular_weight > 0 AND molecular_weight <= 1.7976931348623157e308",
+            name="ck_compound_molecular_weight",
+        ),
         sa.CheckConstraint(
             "length(structure_hash) = 64 AND structure_hash = lower(structure_hash) AND structure_hash NOT GLOB '*[^0-9a-f]*'",
             name="ck_compound_structure_hash",
         ),
         sa.CheckConstraint(
-            "length(trim(chemistry_policy_id)) > 0", name="ck_compound_policy"
+            _sql_nonblank("chemistry_policy_id"), name="ck_compound_policy"
         ),
         sa.CheckConstraint(
-            "length(trim(rdkit_version)) > 0", name="ck_compound_rdkit_version"
+            _sql_nonblank("rdkit_version"), name="ck_compound_rdkit_version"
         ),
         sa.CheckConstraint(
-            "inchi_version IS NULL OR length(trim(inchi_version)) > 0",
+            f"inchi_version IS NULL OR {_sql_nonblank('inchi_version')}",
             name="ck_compound_inchi_version",
         ),
         sa.CheckConstraint(
@@ -92,31 +103,31 @@ def upgrade() -> None:  # pragma: no cover
         ),
         sa.UniqueConstraint("state_hash", name="uq_molecular_state_hash"),
         sa.CheckConstraint(
-            "length(trim(state_smiles)) > 0", name="ck_molecular_state_smiles"
+            _sql_nonblank("state_smiles"), name="ck_molecular_state_smiles"
         ),
         sa.CheckConstraint(
-            "length(trim(stereochemistry_signature)) > 0",
+            _sql_nonblank("stereochemistry_signature"),
             name="ck_molecular_state_stereo",
         ),
         sa.CheckConstraint(
-            "length(trim(protonation_signature)) > 0",
+            _sql_nonblank("protonation_signature"),
             name="ck_molecular_state_protonation",
         ),
         sa.CheckConstraint(
-            "length(trim(tautomer_signature)) > 0", name="ck_molecular_state_tautomer"
+            _sql_nonblank("tautomer_signature"), name="ck_molecular_state_tautomer"
         ),
         sa.CheckConstraint(
             "length(state_hash) = 64 AND state_hash = lower(state_hash) AND state_hash NOT GLOB '*[^0-9a-f]*'",
             name="ck_molecular_state_hash",
         ),
         sa.CheckConstraint(
-            "length(trim(chemistry_policy_id)) > 0", name="ck_molecular_state_policy"
+            _sql_nonblank("chemistry_policy_id"), name="ck_molecular_state_policy"
         ),
         sa.CheckConstraint(
-            "length(trim(rdkit_version)) > 0", name="ck_molecular_state_rdkit_version"
+            _sql_nonblank("rdkit_version"), name="ck_molecular_state_rdkit_version"
         ),
         sa.CheckConstraint(
-            "inchi_version IS NULL OR length(trim(inchi_version)) > 0",
+            f"inchi_version IS NULL OR {_sql_nonblank('inchi_version')}",
             name="ck_molecular_state_inchi_version",
         ),
         sa.CheckConstraint(
@@ -156,11 +167,16 @@ def upgrade() -> None:  # pragma: no cover
             name="uq_alias_batch_source",
         ),
         sa.CheckConstraint(
-            "length(source_system) BETWEEN 1 AND 128 AND source_system NOT GLOB '*[^a-z0-9._-]*' AND substr(source_system, 1, 1) GLOB '[a-z0-9]'",
+            "length(source_system) BETWEEN 1 AND 128 AND "
+            "instr(source_system, char(0)) = 0 AND "
+            "source_system NOT GLOB '*[^a-z0-9._-]*' AND "
+            "substr(source_system, 1, 1) GLOB '[a-z0-9]'",
             name="ck_alias_source_system_format",
         ),
         sa.CheckConstraint(
-            "length(source_value) BETWEEN 1 AND 1024 AND length(trim(source_value)) > 0 AND instr(source_value, char(0)) = 0",
+            f"length(source_value) BETWEEN 1 AND 1024 AND "
+            f"{_sql_nonblank('source_value')} AND "
+            "instr(source_value, char(0)) = 0",
             name="ck_alias_source_value_bounds",
         ),
         sa.CheckConstraint("created_at LIKE '%Z'", name="ck_alias_created_at_utc"),
@@ -211,18 +227,27 @@ def upgrade() -> None:  # pragma: no cover
             name="ck_identity_resolution_decision",
         ),
         sa.CheckConstraint(
-            "(decision = 'confirmed' AND compound_id IS NOT NULL AND supersedes_id IS NULL) OR (decision = 'reassigned' AND compound_id IS NOT NULL AND supersedes_id IS NOT NULL) OR (decision = 'retracted' AND compound_id IS NULL AND molecular_state_id IS NULL AND supersedes_id IS NOT NULL) OR (decision = 'restored' AND compound_id IS NOT NULL AND supersedes_id IS NOT NULL AND actor_kind = 'user' AND rationale IS NOT NULL)",
+            "decision IS NOT NULL AND actor_kind IS NOT NULL AND ("
+            "(decision = 'confirmed' AND compound_id IS NOT NULL AND supersedes_id IS NULL) OR "
+            "(decision = 'reassigned' AND compound_id IS NOT NULL AND supersedes_id IS NOT NULL) OR "
+            "(decision = 'retracted' AND compound_id IS NULL AND molecular_state_id IS NULL AND supersedes_id IS NOT NULL) OR "
+            "(decision = 'restored' AND compound_id IS NOT NULL AND supersedes_id IS NOT NULL AND actor_kind = 'user' AND rationale IS NOT NULL))",
             name="ck_identity_resolution_shape",
         ),
         sa.CheckConstraint(
             "actor_kind IN ('user', 'system')", name="ck_identity_resolution_actor_kind"
         ),
         sa.CheckConstraint(
-            "(actor_kind = 'system' AND actor_id IS NULL) OR (actor_kind = 'user' AND length(trim(actor_id)) > 0)",
+            "(actor_kind = 'system' AND actor_id IS NULL) OR "
+            "(actor_kind = 'user' AND actor_id IS NOT NULL AND "
+            f"{_sql_nonblank('actor_id')} AND length(actor_id) <= 128 AND "
+            "instr(actor_id, char(0)) = 0)",
             name="ck_identity_resolution_actor",
         ),
         sa.CheckConstraint(
-            "rationale IS NULL OR (length(trim(rationale)) > 0 AND length(rationale) <= 1024 AND instr(rationale, char(0)) = 0)",
+            "rationale IS NULL OR ("
+            f"{_sql_nonblank('rationale')} AND length(rationale) <= 1024 AND "
+            "instr(rationale, char(0)) = 0)",
             name="ck_identity_resolution_rationale",
         ),
         sa.CheckConstraint(
