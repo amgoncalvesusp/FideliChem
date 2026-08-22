@@ -315,13 +315,14 @@ def _batch_for_resolution(
     session: Session, row: _IdentityResolutionRow
 ) -> _ImportBatchRow:
     statement = (
-        select(_ImportBatchRow)
-        .join(_AliasRow, _AliasRow.import_batch_id == _ImportBatchRow.id)
+        select(_AliasRow, _ImportBatchRow)
+        .outerjoin(_ImportBatchRow, _ImportBatchRow.id == _AliasRow.import_batch_id)
         .where(_AliasRow.id == row.alias_id)
     )
-    batch = session.execute(statement).scalar_one_or_none()
-    if batch is None:
+    alias, batch = session.execute(statement).tuples().one_or_none() or (None, None)
+    if alias is None or batch is None:
         raise CorruptStoredDataError("stored identity resolution data is invalid")
+    _validated_alias(alias, batch)
     return batch
 
 
@@ -352,20 +353,17 @@ def _validated_alias(row: _AliasRow, batch: _ImportBatchRow) -> Alias:
         ) from None
 
 
-def _validate_chain_node(
+def _find_chain_root(
     session: Session,
     row: _IdentityResolutionRow,
     batch: _ImportBatchRow,
     visiting: set[str],
     visited: set[str],
-    skip_successor_id: str | None = None,
-) -> None:
+) -> tuple[_IdentityResolutionRow, _ImportBatchRow]:
     if row.id in visiting:
-        if row.supersedes_id is None:
-            return
         raise CorruptStoredDataError("stored identity resolution data is invalid")
     if row.id in visited:
-        return
+        return row, batch
     visiting.add(row.id)
     _validate_resolution_row(session, row)
     _validated_batch(batch)
@@ -374,27 +372,58 @@ def _validate_chain_node(
         if predecessor is None or predecessor.alias_id != row.alias_id:
             raise CorruptStoredDataError("stored identity resolution data is invalid")
         predecessor_batch = _batch_for_resolution(session, predecessor)
-        _validate_chain_node(
+        root, root_batch = _find_chain_root(
             session,
             predecessor,
             predecessor_batch,
             visiting,
             visited,
-            row.id,
         )
+    else:
+        root, root_batch = row, batch
+    visiting.remove(row.id)
+    visited.add(row.id)
+    return root, root_batch
+
+
+def _validate_successor_tree(
+    session: Session,
+    row: _IdentityResolutionRow,
+    batch: _ImportBatchRow,
+    visiting: set[str],
+    visited: set[str],
+) -> None:
+    if row.id in visiting:
+        raise CorruptStoredDataError("stored identity resolution data is invalid")
+    if row.id in visited:
+        return
+    visiting.add(row.id)
+    _validate_resolution_row(session, row)
+    _validated_batch(batch)
     successors = _successors(session, row.id)
     if len(successors) > 1:
         raise CorruptStoredDataError("stored identity resolution data is invalid")
     for successor, successor_batch in successors:
         if successor.alias_id != row.alias_id:
             raise CorruptStoredDataError("stored identity resolution data is invalid")
-        if successor.id == skip_successor_id:
-            continue
-        _validate_chain_node(
+        _validate_successor_tree(
             session, successor, successor_batch, visiting, visited
         )
     visiting.remove(row.id)
     visited.add(row.id)
+
+
+def _validate_chain_node(
+    session: Session,
+    row: _IdentityResolutionRow,
+    batch: _ImportBatchRow,
+    visiting: set[str],
+    visited: set[str],
+) -> None:
+    root, root_batch = _find_chain_root(
+        session, row, batch, visiting, visited
+    )
+    _validate_successor_tree(session, root, root_batch, set(), set())
 
 
 def _validate_resolution_row(

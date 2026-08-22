@@ -165,6 +165,108 @@ def test_catalog_and_active_projection_reopen_dormant_siblings(
     assert reopened.catalog_by_state_hash("c" * 64) == (sibling,)
 
 
+def test_valid_three_node_chain_returns_active_leaf_and_catalog_candidate(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "70707070-7070-4070-8070-707070707070",
+        ImportStatus.COMPLETED,
+    )
+    middle_id = "71717171-7171-4171-8171-717171717171"
+    leaf_id = "72727272-7272-4272-8272-727272727272"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.molecular_states.add(_state(STATE_B_ID, "b" * 64))
+        uow.aliases.add(_alias(batch.id))
+        uow.identity_resolutions.add(_resolution())
+        uow.identity_resolutions.add(
+            _resolution(
+                resolution_id=middle_id,
+                decision=IdentityDecision.REASSIGNED,
+                molecular_state_id=STATE_B_ID,
+                supersedes_id=ROOT_ID,
+                decided_at=NOW + timedelta(minutes=1),
+            )
+        )
+        uow.identity_resolutions.add(
+            _resolution(
+                resolution_id=leaf_id,
+                decision=IdentityDecision.REASSIGNED,
+                molecular_state_id=STATE_A_ID,
+                supersedes_id=middle_id,
+                decided_at=NOW + timedelta(minutes=2),
+            )
+        )
+
+    index = PersistentIdentityIndex(migrated_engine)
+    active = index.active_by_alias("gold", "ligand_17")
+    assert len(active) == 1
+    assert active[0].resolution_id == leaf_id
+    assert active[0].molecular_state_id == STATE_A_ID
+    catalog = index.catalog_by_state_hash("b" * 64)
+    assert len(catalog) == 1
+    assert catalog[0].catalog_dormant is True
+    leaf_catalog = index.catalog_by_state_hash("a" * 64)
+    assert leaf_catalog[0].catalog_dormant is False
+
+
+def test_valid_retracted_then_restored_chain_returns_restored_leaf(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "73737373-7373-4373-8373-737373737373",
+        ImportStatus.COMPLETED,
+    )
+    retracted_id = "74747474-7474-4474-8474-747474747474"
+    restored_id = "75757575-7575-4575-8575-757575757575"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.molecular_states.add(_state(STATE_B_ID, "b" * 64))
+        uow.aliases.add(_alias(batch.id))
+        uow.identity_resolutions.add(_resolution())
+        uow.identity_resolutions.add(
+            _resolution(
+                resolution_id=retracted_id,
+                decision=IdentityDecision.RETRACTED,
+                compound_id=None,
+                molecular_state_id=None,
+                supersedes_id=ROOT_ID,
+                decided_at=NOW + timedelta(minutes=1),
+            )
+        )
+        uow.identity_resolutions.add(
+            IdentityResolution(
+                id=restored_id,
+                alias_id=ALIAS_ID,
+                decision=IdentityDecision.RESTORED,
+                compound_id=COMPOUND_ID,
+                molecular_state_id=STATE_B_ID,
+                supersedes_id=retracted_id,
+                decided_at=NOW + timedelta(minutes=2),
+                actor_kind=ActorKind.USER,
+                actor_id="reviewer",
+                rationale="reviewed",
+            )
+        )
+
+    index = PersistentIdentityIndex(migrated_engine)
+    active = index.active_by_alias("gold", "ligand_17")
+    assert len(active) == 1
+    assert active[0].resolution_id == restored_id
+    assert active[0].molecular_state_id == STATE_B_ID
+    assert index.catalog_by_state_hash("b" * 64)[0].catalog_dormant is False
+
+
 def test_compound_only_resolution_dormancy_is_not_inherited_by_siblings(
     migrated_engine: Engine,
 ) -> None:
