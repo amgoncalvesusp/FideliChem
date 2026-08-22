@@ -352,6 +352,18 @@ class IdentityResolutionRepository(_ChemistryRepositoryBase):
             ),
         )
 
+    def list_all(self) -> tuple[IdentityResolution, ...]:
+        session = self._require_session()
+        statement = select(_IdentityResolutionRow).order_by(
+            _IdentityResolutionRow.decided_at, _IdentityResolutionRow.id
+        )
+        return self._read(
+            "identity resolution",
+            lambda: tuple(
+                _resolution_model(row) for row in session.execute(statement).scalars()
+            ),
+        )
+
 
 __all__ = [
     "AliasRepository",

@@ -16,10 +16,11 @@ from fidelichem.domain.chemistry import (
     IdentitySelection,
     SelectionMode,
 )
-from fidelichem.domain.errors import AliasConflictError
+from fidelichem.domain.errors import AliasConflictError, IdentityResolutionConflictError
 from fidelichem.domain.models import ActorKind, ImportBatch, ImportStatus, Project
 from fidelichem.identity.models import (
     CatalogAction,
+    ResolutionCandidate,
     ResolutionKind,
     ResolutionReason,
     ResolutionReport,
@@ -84,6 +85,12 @@ def _claim(source_value: str = "ligand-1") -> IdentityClaim:
 
 def _actor() -> IdentityActor:
     return IdentityActor(kind=ActorKind.SYSTEM)
+
+
+def _user() -> IdentityActor:
+    return IdentityActor(
+        kind=ActorKind.USER, actor_id="reviewer", rationale="concurrent review"
+    )
 
 
 def _report() -> ResolutionReport:
@@ -196,6 +203,138 @@ def test_concurrent_matching_structure_reuses_winner_with_audited_race(
             for event in events
         }
         assert reuse_flags == {False, True}
+
+
+def test_concurrent_new_state_race_reuses_one_state_and_audits_both(
+    migrated_engine: Engine,
+) -> None:
+    _seed_project_batch(migrated_engine)
+    with UnitOfWork(migrated_engine) as uow:
+        uow.compounds.add(_result().compound)
+    report = ResolutionReport(
+        kind=ResolutionKind.NEW_STATE,
+        reason=ResolutionReason.PARENT_MATCH,
+        candidates=(ResolutionCandidate(compound_id="33333333-3333-4333-8333-333333333333"),),
+        catalog_action=CatalogAction.REUSE_COMPOUND,
+        catalog_match_dormant=True,
+    )
+    barrier = Barrier(2)
+
+    def confirm(source_value: str) -> object:
+        def failpoint(point: str) -> None:
+            if point == "before_state":
+                barrier.wait(timeout=10)
+
+        return _attempt(
+            lambda: _service(migrated_engine, failpoint=failpoint).confirm_claim(
+                _result(),
+                _claim(source_value),
+                report,
+                IdentitySelection(
+                    mode=SelectionMode.EXISTING_TARGET,
+                    compound_id="33333333-3333-4333-8333-333333333333",
+                ),
+                _actor(),
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(confirm, ("ligand-1", "ligand-2")))
+    assert all(not isinstance(outcome, Exception) for outcome in outcomes)
+    with UnitOfWork(migrated_engine) as uow:
+        assert uow.molecular_states.get("44444444-4444-4444-8444-444444444444")
+        events = uow.audit_events.list_by_batch(BATCH_ID)
+        assert len(events) == 2
+        assert {
+            bool(json.loads(event.new_value_json or "{}")["reuse_after_race"])
+            for event in events
+        } == {False, True}
+
+
+def _seed_root(engine: Engine) -> tuple[str, str]:
+    _seed_project_batch(engine)
+    _service(engine).confirm_claim(
+        _result(),
+        _claim(),
+        _report(),
+        IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+        _actor(),
+    )
+    with UnitOfWork(engine) as uow:
+        alias = uow.aliases.list_by_batch(BATCH_ID)[0]
+        root = uow.identity_resolutions.list_by_alias(alias.id)[0]
+    return alias.id, root.id
+
+
+@pytest.mark.parametrize("decision", ("reassign", "retract"))
+def test_concurrent_transition_has_one_winner_and_no_losing_audit(
+    migrated_engine: Engine, decision: str
+) -> None:
+    alias_id, predecessor_id = _seed_root(migrated_engine)
+    barrier = Barrier(2)
+
+    def transition() -> object:
+        def failpoint(point: str) -> None:
+            if point == "before_transition":
+                barrier.wait(timeout=10)
+
+        service = _service(migrated_engine, failpoint=failpoint)
+        if decision == "reassign":
+            return service.reassign(
+                alias_id,
+                predecessor_id,
+                IdentitySelection(
+                    mode=SelectionMode.EXISTING_TARGET,
+                    compound_id="33333333-3333-4333-8333-333333333333",
+                ),
+                _user(),
+            )
+        return service.retract(alias_id, predecessor_id, _user())
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: _attempt(transition), range(2)))
+    assert sum(not isinstance(outcome, Exception) for outcome in outcomes) == 1
+    assert sum(
+        isinstance(outcome, IdentityResolutionConflictError) for outcome in outcomes
+    ) == 1
+    with UnitOfWork(migrated_engine) as uow:
+        assert len(uow.identity_resolutions.list_by_alias(alias_id)) == 2
+        assert len(uow.audit_events.list_by_batch(BATCH_ID)) == 2
+
+
+def test_concurrent_restore_has_one_winner_and_no_losing_audit(
+    migrated_engine: Engine,
+) -> None:
+    alias_id, predecessor_id = _seed_root(migrated_engine)
+    retracted = _service(migrated_engine).retract(
+        alias_id, predecessor_id, _user()
+    )
+    barrier = Barrier(2)
+
+    def restore() -> object:
+        def failpoint(point: str) -> None:
+            if point == "before_transition":
+                barrier.wait(timeout=10)
+
+        return _service(migrated_engine, failpoint=failpoint).restore(
+            alias_id,
+            retracted.id,
+            IdentitySelection(
+                mode=SelectionMode.EXISTING_TARGET,
+                compound_id="33333333-3333-4333-8333-333333333333",
+            ),
+            _user(),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: _attempt(restore), range(2)))
+    assert sum(not isinstance(outcome, Exception) for outcome in outcomes) == 1
+    assert sum(
+        isinstance(outcome, IdentityResolutionConflictError) for outcome in outcomes
+    ) == 1
+    with UnitOfWork(migrated_engine) as uow:
+        assert len(uow.identity_resolutions.list_by_alias(alias_id)) == 3
+        assert len(uow.audit_events.list_by_batch(BATCH_ID)) == 3
 
 
 def _attempt(operation):

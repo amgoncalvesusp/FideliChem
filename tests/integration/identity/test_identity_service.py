@@ -9,15 +9,18 @@ import pytest
 from sqlalchemy import Engine
 
 from fidelichem.domain.chemistry import (
+    Alias,
     CanonicalizationResult,
     Compound,
     IdentityActor,
     IdentityClaim,
     IdentityDecision,
+    IdentityResolution,
     IdentitySelection,
     MolecularState,
     SelectionMode,
 )
+from fidelichem.domain.errors import IdentityResolutionConflictError
 from fidelichem.domain.models import ActorKind, ImportBatch, ImportStatus, Project
 from fidelichem.identity.models import (
     CatalogAction,
@@ -29,6 +32,7 @@ from fidelichem.identity.models import (
 from fidelichem.identity.service import IdentityService
 from fidelichem.storage.engine import create_sqlite_engine
 from fidelichem.storage.identity_index import PersistentIdentityIndex
+from fidelichem.storage.repositories import RecordNotFoundError
 from fidelichem.storage.runner import upgrade_database
 from fidelichem.storage.session import UnitOfWork
 
@@ -75,6 +79,7 @@ def _result(
     state_id: str = STATE_ID,
     structure_hash: str = "b" * 64,
     state_hash: str = "a" * 64,
+    source_smiles: str = "CCO",
 ) -> CanonicalizationResult:
     compound = Compound(
         id=compound_id,
@@ -104,7 +109,7 @@ def _result(
         inchi_version="1.0.0",
     )
     return CanonicalizationResult(
-        source_smiles="CCO",
+        source_smiles=source_smiles,
         compound=compound,
         molecular_state=state,
         chemistry_policy_id="fidelichem.rdkit-identity.v1",
@@ -116,9 +121,10 @@ def _claim(
     batch_id: str | None = BATCH_ID,
     source_system: str | None = "gold",
     source_value: str | None = "ligand-1",
+    smiles: str | None = "CCO",
 ) -> IdentityClaim:
     return IdentityClaim(
-        smiles="CCO",
+        smiles=smiles,
         source_system=source_system,
         source_value=source_value,
         import_batch_id=batch_id,
@@ -165,15 +171,21 @@ def _service(
     *,
     failpoint: Callable[[str], None] | None = None,
     factory_calls: list[int] | None = None,
+    index_calls: list[int] | None = None,
 ) -> IdentityService:
     def make_uow() -> UnitOfWork:
         if factory_calls is not None:
             factory_calls.append(1)
         return UnitOfWork(engine)
 
+    def make_index() -> PersistentIdentityIndex:
+        if index_calls is not None:
+            index_calls.append(1)
+        return PersistentIdentityIndex(engine)
+
     return IdentityService(
         uow_factory=make_uow,
-        index_factory=lambda: PersistentIdentityIndex(engine),
+        index_factory=make_index,
         clock=lambda: NOW,
         failpoint=failpoint,
     )
@@ -219,6 +231,124 @@ def test_confirm_new_compound_persists_atomic_identity_and_audit(
         assert payload["actor_kind"] == ActorKind.SYSTEM.value
 
 
+def test_confirm_rejects_stale_report_before_opening_uow_and_calls_live_index(
+    migrated_engine: Engine,
+) -> None:
+    _seed_project_batch(migrated_engine)
+    service = _service(migrated_engine)
+    service.confirm_claim(
+        _result(),
+        _claim(),
+        _report(),
+        IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+        _actor(),
+    )
+    uow_calls: list[int] = []
+    index_calls: list[int] = []
+    stale = _service(
+        migrated_engine, factory_calls=uow_calls, index_calls=index_calls
+    )
+    with pytest.raises(ValueError, match="stale"):
+        stale.confirm_claim(
+            _result(),
+            _claim(source_value="ligand-2"),
+            _report(),
+            IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+            _actor(),
+        )
+    assert index_calls == [1]
+    assert uow_calls == []
+
+
+def test_confirm_rejects_stale_new_state_when_live_state_is_exact(
+    migrated_engine: Engine,
+) -> None:
+    _seed_project_batch(migrated_engine)
+    service = _service(migrated_engine)
+    service.confirm_claim(
+        _result(),
+        _claim(),
+        _report(),
+        IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+        _actor(),
+    )
+    with pytest.raises(ValueError, match="stale"):
+        service.confirm_claim(
+            _result(),
+            _claim(source_value="ligand-2"),
+            _report(
+                ResolutionKind.NEW_STATE,
+                candidate=ResolutionCandidate(compound_id=COMPOUND_ID),
+            ),
+            IdentitySelection(
+                mode=SelectionMode.EXISTING_TARGET, compound_id=COMPOUND_ID
+            ),
+            _actor(),
+        )
+
+
+def test_confirm_result_and_claim_smiles_are_mutually_required_before_uow(
+    migrated_engine: Engine,
+) -> None:
+    uow_calls: list[int] = []
+    index_calls: list[int] = []
+    service = _service(
+        migrated_engine, factory_calls=uow_calls, index_calls=index_calls
+    )
+    with pytest.raises(ValueError, match="SMILES"):
+        service.confirm_claim(
+            _result(),
+            _claim(smiles=None),
+            _report(),
+            IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+            _actor(),
+        )
+    with pytest.raises(ValueError, match="SMILES"):
+        service.confirm_claim(
+            None,
+            _claim(),
+            _report(ResolutionKind.ALIAS_ONLY),
+            IdentitySelection(
+                mode=SelectionMode.EXISTING_TARGET, compound_id=COMPOUND_ID
+            ),
+            _actor(ActorKind.USER),
+        )
+    with pytest.raises(ValueError, match="source"):
+        service.confirm_claim(
+            _result(source_smiles="CCN"),
+            _claim(),
+            _report(),
+            IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+            _actor(),
+        )
+    assert uow_calls == []
+    assert index_calls == []
+
+
+def test_structural_user_actor_may_omit_rationale_and_malformed_actor_is_safe(
+    migrated_engine: Engine,
+) -> None:
+    _seed_project_batch(migrated_engine)
+    actor = IdentityActor(kind=ActorKind.USER, actor_id="reviewer")
+    service = _service(migrated_engine)
+    service.confirm_claim(
+        _result(),
+        _claim(),
+        _report(),
+        IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+        actor,
+    )
+    with UnitOfWork(migrated_engine) as uow:
+        alias = uow.aliases.list_by_batch(BATCH_ID)[0]
+        root = uow.identity_resolutions.list_by_alias(alias.id)[0]
+    with pytest.raises(ValueError, match="actor"):
+        service.retract(
+            alias.id,
+            root.id,
+            {"kind": "user", "actor_id": "reviewer"},
+        )
+
+
 @pytest.mark.parametrize(
     "point",
     (
@@ -249,6 +379,7 @@ def test_confirm_failpoints_roll_back_all_identity_categories(
         assert uow.compounds.get(COMPOUND_ID) is None
         assert uow.molecular_states.get(STATE_ID) is None
         assert uow.aliases.list_by_batch(BATCH_ID) == ()
+        assert uow.identity_resolutions.list_all() == ()
         assert uow.audit_events.list_by_batch(BATCH_ID) == ()
 
 
@@ -280,7 +411,32 @@ def test_alias_only_binds_reported_compound_without_materializing_result(
     existing = _result()
     with UnitOfWork(migrated_engine) as uow:
         uow.compounds.add(existing.compound)
-    candidate = ResolutionCandidate(compound_id=COMPOUND_ID)
+        uow.molecular_states.add(existing.molecular_state)
+        prior_batch = _batch().model_copy(
+            update={"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
+        )
+        uow.import_batches.add(prior_batch)
+        prior_alias = uow.aliases.add(
+            Alias(
+                source_system="gold",
+                source_value="ligand-1",
+                import_batch_id=prior_batch.id,
+                created_at=NOW,
+            )
+        )
+        uow.identity_resolutions.add(
+            IdentityResolution(
+                alias_id=prior_alias.id,
+                decision=IdentityDecision.CONFIRMED,
+                compound_id=COMPOUND_ID,
+                molecular_state_id=STATE_ID,
+                decided_at=NOW,
+                actor_kind=ActorKind.SYSTEM,
+            )
+        )
+    candidate = ResolutionCandidate(
+        compound_id=COMPOUND_ID, molecular_state_id=STATE_ID
+    )
     result = _result(
         compound_id="77777777-7777-4777-8777-777777777777",
         state_id="88888888-8888-4888-8888-888888888888",
@@ -288,8 +444,8 @@ def test_alias_only_binds_reported_compound_without_materializing_result(
         state_hash="d" * 64,
     )
     resolution = _service(migrated_engine).confirm_claim(
-        result,
-        _claim(),
+        None,
+        _claim(smiles=None),
         _report(ResolutionKind.ALIAS_ONLY, candidate=candidate),
         IdentitySelection(mode=SelectionMode.EXISTING_TARGET, compound_id=COMPOUND_ID),
         _actor(ActorKind.USER),
@@ -313,6 +469,7 @@ def test_exact_state_reuses_only_reported_state_and_new_state_binds_parent(
         candidate=ResolutionCandidate(
             compound_id=COMPOUND_ID, molecular_state_id=STATE_ID
         ),
+        dormant=True,
     )
     resolved = _service(migrated_engine).confirm_claim(
         result,
@@ -375,7 +532,7 @@ def test_confirm_rejects_sibling_selection_and_result_hash_mismatch(
             _actor(),
         )
     mismatch = _result(structure_hash="c" * 64)
-    with pytest.raises(ValueError, match="match"):
+    with pytest.raises(ValueError, match="stale"):
         _service(migrated_engine).confirm_claim(
             mismatch,
             _claim(source_value="ligand-2"),
@@ -393,7 +550,7 @@ def test_confirm_rejects_unresolved_and_authority_mismatch(
     migrated_engine: Engine,
 ) -> None:
     _seed_project_batch(migrated_engine)
-    with pytest.raises(ValueError, match="unresolved"):
+    with pytest.raises(ValueError, match="SMILES"):
         _service(migrated_engine).confirm_claim(
             None,
             _claim(),
@@ -454,7 +611,7 @@ def test_confirm_rejects_missing_and_rolled_back_batches_and_invalid_authority(
 ) -> None:
     _seed_project_batch(migrated_engine)
     service = _service(migrated_engine)
-    with pytest.raises(Exception, match="batch"):
+    with pytest.raises(RecordNotFoundError, match="batch"):
         service.confirm_claim(
             _result(),
             _claim(batch_id="77777777-7777-4777-8777-777777777777"),
@@ -472,7 +629,7 @@ def test_confirm_rejects_missing_and_rolled_back_batches_and_invalid_authority(
             IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
             _actor(),
         )
-    with pytest.raises(ValueError, match="required"):
+    with pytest.raises(ValueError, match="SMILES"):
         service.confirm_claim(
             None,
             _claim(batch_id="77777777-7777-4777-8777-777777777777"),
@@ -489,6 +646,29 @@ def test_confirm_rejects_missing_and_rolled_back_batches_and_invalid_authority(
             ),
             _actor(),
         )
+
+
+def test_transition_rejects_rolled_back_batch_before_append_or_audit(
+    migrated_engine: Engine,
+) -> None:
+    _seed_project_batch(migrated_engine)
+    service = _service(migrated_engine)
+    service.confirm_claim(
+        _result(),
+        _claim(),
+        _report(),
+        IdentitySelection(mode=SelectionMode.NEW_COMPOUND),
+        _actor(),
+    )
+    with UnitOfWork(migrated_engine) as uow:
+        alias = uow.aliases.list_by_batch(BATCH_ID)[0]
+        root = uow.identity_resolutions.list_by_alias(alias.id)[0]
+        uow.import_batches.rollback(BATCH_ID, rollback_reason="withdrawn")
+    with pytest.raises(ValueError, match="rolled-back"):
+        service.retract(alias.id, root.id, _actor(ActorKind.USER))
+    with UnitOfWork(migrated_engine) as uow:
+        assert len(uow.identity_resolutions.list_by_alias(alias.id)) == 1
+        assert len(uow.audit_events.list_by_batch(BATCH_ID)) == 1
 
 
 def test_transition_validation_rejects_non_leaf_missing_and_unowned_targets(
@@ -515,9 +695,9 @@ def test_transition_validation_rejects_non_leaf_missing_and_unowned_targets(
         service.restore(
             alias.id, root.id, IdentitySelection(mode=SelectionMode.NEW_COMPOUND), user
         )
-    with pytest.raises(Exception, match="predecessor"):
+    with pytest.raises(RecordNotFoundError, match="predecessor"):
         service.retract("77777777-7777-4777-8777-777777777777", root.id, user)
-    with pytest.raises(Exception, match="selected compound"):
+    with pytest.raises(RecordNotFoundError, match="selected compound"):
         service.reassign(
             alias.id,
             root.id,
@@ -557,6 +737,6 @@ def test_transition_validation_rejects_non_leaf_missing_and_unowned_targets(
             user,
         )
     retract = service.retract(alias.id, root.id, user)
-    with pytest.raises(Exception, match="conflicts"):
+    with pytest.raises(IdentityResolutionConflictError, match="conflicts"):
         service.retract(alias.id, root.id, user)
     assert retract.decision is IdentityDecision.RETRACTED

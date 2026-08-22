@@ -21,7 +21,13 @@ from fidelichem.domain.chemistry import (
 from fidelichem.domain.errors import IdentityResolutionConflictError
 from fidelichem.domain.json import canonical_json
 from fidelichem.domain.models import ActorKind, AuditEvent, ImportStatus
-from fidelichem.identity.models import CatalogAction, ResolutionKind, ResolutionReport
+from fidelichem.identity.models import (
+    CatalogAction,
+    IdentityIndex,
+    ResolutionKind,
+    ResolutionReport,
+)
+from fidelichem.identity.resolver import IdentityResolver
 from fidelichem.storage.repositories import (
     DuplicateRecordError,
     RecordNotFoundError,
@@ -30,7 +36,7 @@ from fidelichem.storage.session import UnitOfWork
 
 Clock = Callable[[], datetime]
 UowFactory = Callable[[], UnitOfWork]
-IndexFactory = Callable[[], object]
+IndexFactory = Callable[[], IdentityIndex]
 Failpoint = Callable[[str], None]
 
 
@@ -64,6 +70,7 @@ class IdentityService:
             raise ValueError("persistence prerequisites are required")
         if claim.source_value is None:
             raise ValueError("persistence prerequisites are required")
+        self._validate_live_report(result, claim, report, selection)
         try:
             with self._uow_factory() as uow:
                 return self._confirm_in_uow(
@@ -172,6 +179,14 @@ class IdentityService:
                 result = CanonicalizationResult.model_validate(result)
         except (ValidationError, TypeError, ValueError):
             raise ValueError("identity confirmation input is invalid") from None
+        if (result is None) != (claim.smiles is None):
+            raise ValueError("result and claim SMILES must be supplied together")
+        if (
+            result is not None
+            and claim.smiles is not None
+            and result.source_smiles != claim.smiles
+        ):
+            raise ValueError("canonicalization source does not match claim")
         if report.catalog_action is not self._expected_action(report.kind):
             raise ValueError("report catalog action is not authoritative")
         if report.kind is ResolutionKind.UNRESOLVED:
@@ -191,11 +206,13 @@ class IdentityService:
             ResolutionKind.AMBIGUOUS,
             ResolutionKind.CONFLICT,
         }:
-            actor = self._validate_actor(actor, require_user=True)
-            if actor.rationale is None:
-                raise ValueError("a rationale is required")
+            actor = self._validate_actor(
+                actor, require_user=True, require_rationale=True
+            )
         else:
-            actor = self._validate_actor(actor, require_user=False)
+            actor = self._validate_actor(
+                actor, require_user=False, require_rationale=False
+            )
         self._validate_selection_authority(report, selection)
         if (
             report.kind is ResolutionKind.NEW_COMPOUND
@@ -218,12 +235,65 @@ class IdentityService:
         }[kind]
 
     @staticmethod
-    def _validate_actor(actor: IdentityActor, *, require_user: bool) -> IdentityActor:
+    def _validate_actor(
+        actor: IdentityActor,
+        *,
+        require_user: bool,
+        require_rationale: bool | None = None,
+    ) -> IdentityActor:
+        try:
+            actor = IdentityActor.model_validate(actor)
+        except (ValidationError, TypeError, ValueError):
+            raise ValueError("identity actor is invalid") from None
+        if require_rationale is None:
+            require_rationale = require_user
         if require_user and actor.kind is not ActorKind.USER:
             raise ValueError("this identity decision requires a user actor")
-        if actor.kind is ActorKind.USER and actor.rationale is None:
+        if require_rationale and (
+            actor.rationale is None or not actor.rationale.strip()
+        ):
             raise ValueError("a user actor requires a rationale")
         return actor
+
+    def _validate_live_report(
+        self,
+        result: CanonicalizationResult | None,
+        claim: IdentityClaim,
+        report: ResolutionReport,
+        selection: IdentitySelection,
+    ) -> None:
+        """Reject a caller-supplied report which is stale at the write boundary."""
+        try:
+            live = IdentityResolver().resolve(
+                result,
+                claim,
+                self._index_factory(),
+            )
+        except (ValidationError, TypeError, ValueError):
+            raise ValueError("live identity evidence is invalid") from None
+        if (
+            live.kind is not report.kind
+            or live.catalog_action is not report.catalog_action
+            or live.catalog_match_dormant != report.catalog_match_dormant
+        ):
+            raise ValueError("stale resolution report")
+        if report.kind is ResolutionKind.NEW_COMPOUND:
+            return
+        if selection.mode is not SelectionMode.EXISTING_TARGET:
+            raise ValueError("selection does not match live report authority")
+        if report.kind in {ResolutionKind.ALIAS_ONLY, ResolutionKind.AMBIGUOUS}:
+            valid = any(
+                candidate.compound_id == selection.compound_id
+                for candidate in live.candidates
+            )
+        else:
+            valid = any(
+                candidate.compound_id == selection.compound_id
+                and candidate.molecular_state_id == selection.molecular_state_id
+                for candidate in live.candidates
+            )
+        if not valid:
+            raise ValueError("stale resolution report")
 
     @staticmethod
     def _validate_selection(selection: IdentitySelection) -> IdentitySelection:
@@ -248,11 +318,18 @@ class IdentityService:
             and selection.molecular_state_id is not None
         ):
             raise ValueError("alias evidence requires a compound-only target")
-        if not any(
-            candidate.compound_id == selection.compound_id
-            and candidate.molecular_state_id == selection.molecular_state_id
-            for candidate in candidates
-        ):
+        if report.kind in {ResolutionKind.ALIAS_ONLY, ResolutionKind.AMBIGUOUS}:
+            present = any(
+                candidate.compound_id == selection.compound_id
+                for candidate in candidates
+            )
+        else:
+            present = any(
+                candidate.compound_id == selection.compound_id
+                and candidate.molecular_state_id == selection.molecular_state_id
+                for candidate in candidates
+            )
+        if not present:
             raise ValueError("selection is absent from the resolution report")
         if (
             report.kind is ResolutionKind.EXACT_STATE
@@ -306,6 +383,7 @@ class IdentityService:
                 state = result.molecular_state.model_copy(
                     update={"compound_id": target_compound}
                 )
+                self._hit("before_state")
                 uow.molecular_states.add(state)
                 self._hit("after_state")
                 target_state = state.id
@@ -331,6 +409,7 @@ class IdentityService:
                 state = result.molecular_state.model_copy(
                     update={"compound_id": target_compound}
                 )
+                self._hit("before_state")
                 uow.molecular_states.add(state)
                 self._hit("after_state")
                 target_state = state.id
@@ -421,6 +500,13 @@ class IdentityService:
             predecessor = uow.identity_resolutions.get(predecessor_id)
             if alias is None or predecessor is None or predecessor.alias_id != alias_id:
                 raise RecordNotFoundError("identity predecessor was not found")
+            batch = uow.import_batches.get(alias.import_batch_id)
+            if batch is None:
+                raise RecordNotFoundError("identity batch was not found")
+            if batch.status is ImportStatus.ROLLED_BACK:
+                raise ValueError(
+                    "rolled-back import batch cannot receive identity evidence"
+                )
             history = uow.identity_resolutions.list_by_alias(alias_id)
             if not history or any(
                 item.supersedes_id == predecessor_id for item in history
@@ -461,6 +547,7 @@ class IdentityService:
                 actor_id=actor.actor_id,
                 rationale=actor.rationale,
             )
+            self._hit("before_transition")
             uow.identity_resolutions.add(resolution)
             payload = {
                 "prior_target": {
