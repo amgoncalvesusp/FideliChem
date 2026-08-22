@@ -4,9 +4,11 @@ from types import SimpleNamespace
 import pytest
 
 from fidelichem.chemistry import ChemistryService
+from fidelichem.chemistry.policy import ChemistryPolicy
 from fidelichem.domain.chemistry import ChemistryWarningCode
 from fidelichem.domain.errors import (
     AmbiguousParentStructureError,
+    ChemistryError,
     InvalidStructureError,
     NoOrganicParentStructureError,
     ParentPolicyMismatchError,
@@ -14,6 +16,7 @@ from fidelichem.domain.errors import (
 )
 
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=UTC)
+VALID_INCHI = "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
 
 
 @pytest.fixture
@@ -43,6 +46,22 @@ def test_atom_maps_are_not_identity(service: ChemistryService) -> None:
     assert mapped.compound.structure_hash == unmapped.compound.structure_hash
     assert mapped.source_smiles == "[CH3:7][CH2:2][OH:99]"
     assert ":" not in mapped.molecular_state.state_smiles
+
+
+def test_service_policy_binding_is_read_only(service: ChemistryService) -> None:
+    with pytest.raises((AttributeError, TypeError)):
+        service.policy = ChemistryPolicy.model_validate(
+            {
+                "policy_id": "fidelichem.rdkit-identity.v2",
+                "state_hash_prefix": "fidelichem.molecular-state.v2",
+                "parent_hash_prefix": "fidelichem.compound-parent.v2",
+                "stereo_signature_prefix": "fidelichem.stereochemistry.v2",
+                "protonation_signature_prefix": "fidelichem.protonation.v2",
+                "tautomer_signature_prefix": "fidelichem.tautomer.v2",
+                "max_tautomers": 128,
+                "max_transforms": 256,
+            }
+        )
 
 
 @pytest.mark.parametrize(
@@ -146,6 +165,45 @@ def test_tautomer_non_completed_status_is_safe_error(
     assert "Limit" not in str(raised.value)
 
 
+def test_tautomer_uses_completed_result_pick_canonical_once_per_enumerator(
+    service: ChemistryService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import fidelichem.chemistry.service as service_module
+
+    instances: list[object] = []
+
+    class CompletedEnumerator:
+        def __init__(self) -> None:
+            self.enumerate_calls = 0
+            self.pick_calls = 0
+            instances.append(self)
+
+        def SetMaxTautomers(self, value: int) -> None:
+            assert value == 128
+
+        def SetMaxTransforms(self, value: int) -> None:
+            assert value == 256
+
+        def Enumerate(self, mol: object) -> SimpleNamespace:
+            self.enumerate_calls += 1
+            return SimpleNamespace(status="Completed", mol=mol)
+
+        def PickCanonical(self, result: SimpleNamespace) -> object:
+            self.pick_calls += 1
+            return result.mol
+
+        def Canonicalize(self, _mol: object) -> object:
+            raise AssertionError("legacy Canonicalize path must not be used")
+
+    monkeypatch.setattr(
+        service_module.rdMolStandardize, "TautomerEnumerator", CompletedEnumerator
+    )
+    service.canonicalize("CCO", created_at=NOW)
+    assert len(instances) == 2
+    assert all(item.enumerate_calls == 1 for item in instances)
+    assert all(item.pick_calls == 1 for item in instances)
+
+
 def test_inchi_unavailable_is_nullable_warning(
     service: ChemistryService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -156,6 +214,100 @@ def test_inchi_unavailable_is_nullable_warning(
     assert result.compound.inchikey is None
     assert result.molecular_state.state_inchikey is None
     assert result.warnings[0].code is ChemistryWarningCode.INCHI_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("keys", "expected_state", "expected_parent"),
+    [
+        (("not-a-key", VALID_INCHI), None, VALID_INCHI),
+        ((VALID_INCHI, "not-a-key"), VALID_INCHI, None),
+        (("lfqscwfljhtthz-uhvfaoysa-n", VALID_INCHI), None, VALID_INCHI),
+    ],
+)
+def test_malformed_inchi_key_is_nullable_independently(
+    service: ChemistryService,
+    monkeypatch: pytest.MonkeyPatch,
+    keys: tuple[str, str],
+    expected_state: str | None,
+    expected_parent: str | None,
+) -> None:
+    import fidelichem.chemistry.service as service_module
+
+    pending = list(keys)
+    monkeypatch.setattr(
+        service_module.inchi, "MolToInchiKey", lambda _mol: pending.pop(0)
+    )
+    result = service.canonicalize("CCO", created_at=NOW)
+    assert result.molecular_state.state_inchikey == expected_state
+    assert result.compound.inchikey == expected_parent
+    assert result.warnings[0].code is ChemistryWarningCode.INCHI_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["MolToSmiles", "GetFormalCharge"],
+)
+def test_rdkit_state_derivation_failures_are_safe(
+    service: ChemistryService,
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+) -> None:
+    import fidelichem.chemistry.service as service_module
+
+    monkeypatch.setattr(
+        service_module.Chem, target, lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("raw diagnostic")
+        ),
+    )
+    with pytest.raises(ChemistryError) as raised:
+        service.canonicalize("CCO", created_at=NOW)
+    assert "raw diagnostic" not in str(raised.value)
+
+
+@pytest.mark.parametrize("module_name", ["rdMolDescriptors", "Descriptors"])
+def test_rdkit_formula_and_mass_failures_are_safe(
+    service: ChemistryService,
+    monkeypatch: pytest.MonkeyPatch,
+    module_name: str,
+) -> None:
+    import fidelichem.chemistry.service as service_module
+
+    module = getattr(service_module, module_name)
+    target = "CalcMolFormula" if module_name == "rdMolDescriptors" else "MolWt"
+    monkeypatch.setattr(
+        module, target, lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("raw diagnostic")
+        ),
+    )
+    with pytest.raises(ChemistryError) as raised:
+        service.canonicalize("CCO", created_at=NOW)
+    assert "raw diagnostic" not in str(raised.value)
+
+
+def test_nested_rdkit_log_blocks_are_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import fidelichem.chemistry.service as service_module
+
+    enters = 0
+    exits = 0
+
+    class Blocker:
+        def __enter__(self) -> None:
+            nonlocal enters
+            enters += 1
+
+        def __exit__(self, *_args: object) -> None:
+            nonlocal exits
+            exits += 1
+
+    monkeypatch.setattr(service_module.rdBase, "BlockLogs", Blocker)
+    with service_module._quiet_rdkit():
+        with service_module._quiet_rdkit():
+            assert enters == 2
+            assert exits == 0
+        assert exits == 1
+    assert exits == 2
 
 
 def test_parent_policy_mismatch_is_safe_error(

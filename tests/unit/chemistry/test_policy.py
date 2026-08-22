@@ -35,3 +35,18 @@ def test_default_policy_is_immutable_and_cannot_be_redefined() -> None:
 
     assert original.max_tautomers == 128
     assert original.policy_hash == DEFAULT_POLICY.policy_hash
+
+
+@pytest.mark.parametrize("field", ["max_tautomers", "max_transforms"])
+def test_policy_resource_caps_are_bounded(field: str) -> None:
+    values = DEFAULT_POLICY.model_dump()
+    values[field] = 129
+    with pytest.raises(ValidationError):
+        ChemistryPolicy.model_validate(values)
+
+
+def test_new_policy_id_cannot_reuse_v1_hash_namespaces() -> None:
+    values = DEFAULT_POLICY.model_dump()
+    values["policy_id"] = "fidelichem.rdkit-identity.v2"
+    with pytest.raises(ValidationError, match="prefix"):
+        ChemistryPolicy.model_validate(values)

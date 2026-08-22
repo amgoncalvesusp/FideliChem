@@ -9,6 +9,8 @@ from fidelichem.domain.models import DomainModel
 from fidelichem.provenance.hashing import sha256_bytes
 
 _DEFAULT_POLICY_ID = "fidelichem.rdkit-identity.v1"
+_MAX_TAUTOMERS = 128
+_MAX_TRANSFORMS = 256
 _DEFAULT_VALUES: dict[str, object] = {
     "policy_id": _DEFAULT_POLICY_ID,
     "state_hash_prefix": "fidelichem.molecular-state.v1",
@@ -35,12 +37,33 @@ class ChemistryPolicy(DomainModel):
 
     @model_validator(mode="after")
     def _reject_redefinition(self) -> ChemistryPolicy:
+        if self.max_tautomers > _MAX_TAUTOMERS:
+            raise ValueError("max_tautomers exceeds the policy resource cap")
+        if self.max_transforms > _MAX_TRANSFORMS:
+            raise ValueError("max_transforms exceeds the policy resource cap")
         if self.policy_id == _DEFAULT_POLICY_ID:
             for field, expected in _DEFAULT_VALUES.items():
                 if getattr(self, field) != expected:
                     raise ValueError(
                         "policy_id is already assigned to a different algorithm"
                     )
+        elif any(
+            prefix in {
+                self.state_hash_prefix,
+                self.parent_hash_prefix,
+                self.stereo_signature_prefix,
+                self.protonation_signature_prefix,
+                self.tautomer_signature_prefix,
+            }
+            for prefix in (
+                _DEFAULT_VALUES["state_hash_prefix"],
+                _DEFAULT_VALUES["parent_hash_prefix"],
+                _DEFAULT_VALUES["stereo_signature_prefix"],
+                _DEFAULT_VALUES["protonation_signature_prefix"],
+                _DEFAULT_VALUES["tautomer_signature_prefix"],
+            )
+        ):
+            raise ValueError("a new policy must use new hash prefixes")
         return self
 
     @property

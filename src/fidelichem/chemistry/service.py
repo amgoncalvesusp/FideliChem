@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from importlib import import_module
 from typing import Any, cast
@@ -33,7 +34,7 @@ from .policy import (
 
 rdkit = import_module("rdkit")
 Chem: Any = import_module("rdkit.Chem")
-RDLogger: Any = import_module("rdkit.RDLogger")
+rdBase: Any = import_module("rdkit.rdBase")
 Descriptors: Any = import_module("rdkit.Chem.Descriptors")
 inchi: Any = import_module("rdkit.Chem.inchi")
 rdMolStandardize: Any = import_module(
@@ -48,11 +49,8 @@ _MAX_ATOMS = 2_000
 
 @contextmanager
 def _quiet_rdkit() -> Iterator[None]:
-    RDLogger.DisableLog("rdApp.*")
-    try:
+    with rdBase.BlockLogs():
         yield
-    finally:
-        RDLogger.EnableLog("rdApp.*")
 
 
 def _runtime_version() -> str:
@@ -67,14 +65,24 @@ def _runtime_version() -> str:
 
 
 def _canonical_smiles(mol: Any, *, isomeric: bool) -> str:
-    return cast(str, Chem.MolToSmiles(mol, canonical=True, isomericSmiles=isomeric))
+    try:
+        with _quiet_rdkit():
+            return cast(
+                str, Chem.MolToSmiles(mol, canonical=True, isomericSmiles=isomeric)
+            )
+    except Exception:
+        raise ParentPolicyMismatchError() from None
 
 
 def _clear_atom_maps(mol: Any) -> Any:
-    copy = Chem.Mol(mol)
-    for atom in copy.GetAtoms():
-        atom.SetAtomMapNum(0)
-    return copy
+    try:
+        with _quiet_rdkit():
+            copy = Chem.Mol(mol)
+            for atom in copy.GetAtoms():
+                atom.SetAtomMapNum(0)
+            return copy
+    except Exception:
+        raise ParentPolicyMismatchError() from None
 
 
 def _organic_components(mol: Any) -> list[Any]:
@@ -105,6 +113,13 @@ def _inchi_key(mol: Any) -> str | None:
         return None
     if len(key) != 27 or key[14] != "-" or key[25] != "-":
         return None
+    uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if not (
+        all(character in uppercase for character in key[:14])
+        and all(character in uppercase for character in key[15:25])
+        and key[26] in uppercase
+    ):
+        return None
     return key
 
 
@@ -123,18 +138,20 @@ def _configured_tautomer(
     mol: Any, policy: ChemistryPolicy
 ) -> Any:
     with _quiet_rdkit():
-        enumerator = rdMolStandardize.TautomerEnumerator()
-        enumerator.SetMaxTautomers(policy.max_tautomers)
-        enumerator.SetMaxTransforms(policy.max_transforms)
         try:
+            enumerator = rdMolStandardize.TautomerEnumerator()
+            enumerator.SetMaxTautomers(policy.max_tautomers)
+            enumerator.SetMaxTransforms(policy.max_transforms)
             result = enumerator.Enumerate(mol)
-        except Exception:
-            raise TautomerEnumerationLimitError() from None
-        status = getattr(result, "status", None)
-        if str(status) != "Completed" and getattr(status, "name", None) != "Completed":
-            raise TautomerEnumerationLimitError()
-        try:
-            return _clear_atom_maps(enumerator.Canonicalize(mol))
+            status = getattr(result, "status", None)
+            if (
+                str(status) != "Completed"
+                and getattr(status, "name", None) != "Completed"
+            ):
+                raise TautomerEnumerationLimitError()
+            return _clear_atom_maps(enumerator.PickCanonical(result))
+        except TautomerEnumerationLimitError:
+            raise
         except Exception:
             raise TautomerEnumerationLimitError() from None
 
@@ -155,11 +172,11 @@ def _safe_fragment_parent(mol: Any) -> Any:
             raise ParentPolicyMismatchError() from None
 
 
+@dataclass(frozen=True, slots=True)
 class ChemistryService:
     """Canonicalize validated source SMILES using one immutable policy."""
 
-    def __init__(self, policy: ChemistryPolicy = DEFAULT_POLICY) -> None:
-        self.policy = policy
+    policy: ChemistryPolicy = DEFAULT_POLICY
 
     def canonicalize(
         self, source_smiles: str, *, created_at: datetime
@@ -211,58 +228,65 @@ class ChemistryService:
         tautomer_parent_state_smiles = _canonical_smiles(
             tautomer_parent_state, isomeric=False
         )
+        try:
+            with _quiet_rdkit():
+                formal_charge = cast(int, Chem.GetFormalCharge(identity))
+        except Exception:
+            raise ParentPolicyMismatchError() from None
 
         state_inchikey, parent_inchikey, warnings = self._inchi_values(
             identity, final_parent
         )
         inchi_version = _inchi_library_version()
-        compound_id = self._new_id()
-        compound = Compound(
-            id=compound_id,
-            canonical_smiles=parent_smiles,
-            isomeric_smiles=parent_isomeric_smiles,
-            inchikey=parent_inchikey,
-            formula=formula,
-            molecular_weight=molecular_weight,
-            structure_hash=parent_hash(self.policy, parent_isomeric_smiles),
-            chemistry_policy_id=self.policy.policy_id,
-            rdkit_version=runtime_version,
-            inchi_version=inchi_version,
-            created_at=created_at,
-        )
-        state = MolecularState(
-            compound_id=compound.id,
-            state_smiles=state_smiles,
-            state_inchikey=state_inchikey,
-            formal_charge=Chem.GetFormalCharge(identity),
-            stereochemistry_signature=hash_payload(
-                self.policy.stereo_signature_prefix, state_smiles
-            ),
-            protonation_signature=hash_payload(
-                self.policy.protonation_signature_prefix,
-                "charge="
-                + str(Chem.GetFormalCharge(identity))
-                + "\0"
-                + nonstereo_state_smiles
-                + "\0"
-                + charge_parent_state_smiles,
-            ),
-            tautomer_signature=hash_payload(
-                self.policy.tautomer_signature_prefix,
-                tautomer_parent_state_smiles,
-            ),
-            state_hash=state_hash(self.policy, state_smiles),
-            chemistry_policy_id=self.policy.policy_id,
-            rdkit_version=runtime_version,
-            inchi_version=inchi_version,
-        )
-        return CanonicalizationResult(
-            source_smiles=source_smiles,
-            compound=compound,
-            molecular_state=state,
-            chemistry_policy_id=self.policy.policy_id,
-            warnings=tuple(warnings),
-        )
+        try:
+            compound = Compound(
+                id=self._new_id(),
+                canonical_smiles=parent_smiles,
+                isomeric_smiles=parent_isomeric_smiles,
+                inchikey=parent_inchikey,
+                formula=formula,
+                molecular_weight=molecular_weight,
+                structure_hash=parent_hash(self.policy, parent_isomeric_smiles),
+                chemistry_policy_id=self.policy.policy_id,
+                rdkit_version=runtime_version,
+                inchi_version=inchi_version,
+                created_at=created_at,
+            )
+            state = MolecularState(
+                compound_id=compound.id,
+                state_smiles=state_smiles,
+                state_inchikey=state_inchikey,
+                formal_charge=formal_charge,
+                stereochemistry_signature=hash_payload(
+                    self.policy.stereo_signature_prefix, state_smiles
+                ),
+                protonation_signature=hash_payload(
+                    self.policy.protonation_signature_prefix,
+                    "charge="
+                    + str(formal_charge)
+                    + "\0"
+                    + nonstereo_state_smiles
+                    + "\0"
+                    + charge_parent_state_smiles,
+                ),
+                tautomer_signature=hash_payload(
+                    self.policy.tautomer_signature_prefix,
+                    tautomer_parent_state_smiles,
+                ),
+                state_hash=state_hash(self.policy, state_smiles),
+                chemistry_policy_id=self.policy.policy_id,
+                rdkit_version=runtime_version,
+                inchi_version=inchi_version,
+            )
+            return CanonicalizationResult(
+                source_smiles=source_smiles,
+                compound=compound,
+                molecular_state=state,
+                chemistry_policy_id=self.policy.policy_id,
+                warnings=tuple(warnings),
+            )
+        except Exception:
+            raise ParentPolicyMismatchError() from None
 
     @staticmethod
     def _new_id() -> str:
@@ -309,7 +333,6 @@ class ChemistryService:
                     message="InChI generation unavailable",
                 )
             )
-            return None, None, warnings
         return state_key, parent_key, warnings
 
 
