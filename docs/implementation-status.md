@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-3-adapter-sdk`
-- Base integrada: `main` em `3ad80bc`
-- Última fase concluída: **Fase 3 — Adapter SDK + Import Manager**
-- Etapa ativa: nenhuma; Fase 3 concluída com sucesso.
-- Próxima ação exata: iniciar a exploração da Fase 4 — Universal Table Importer.
+- Branch de execução: `feat/phase-4-universal-table-importer`
+- Base integrada: `feat/phase-3-adapter-sdk`
+- Última fase concluída: **Fase 4 — Universal Table Importer**
+- Etapa ativa: nenhuma; Fase 4 concluída com sucesso.
+- Próxima ação exata: iniciar a Fase 5 — Score Registry + Normalization.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -20,8 +20,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
 | 2 — Chemistry + Identity Resolver | Concluída | Tasks 1–8, gate global e review Terra integral aprovados; zero Critical/Important/Minor. |
 | 3 — Adapter SDK + Import Manager | Concluída | Tasks 1–8 concluídas; EvidenceAdapter Protocol, AdapterRegistry, ImportManager, DuplicateImportDetector, FakeAdapter e suite E2E aprovados. |
-| 4 — Universal Table Importer | Pendente | Próxima fase; aguardar início. |
-| 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
+| 4 — Universal Table Importer | Concluída | UniversalTableAdapter, PresetManager, TableMappingSchema, robust readers (CSV/TSV/JSON/JSONL), 508 testes passando com 89,55% de branch coverage. |
+| 5 — Score Registry + normalization | Pendente | Próxima fase; iniciar especificação e implementação. |
+
 
 | 6 — GOLD Adapter | Pendente | Aguardar gate Terra da Fase 5. |
 | 7 — SMILES2Select + SMILES2Docking | Pendente | Aguardar gate Terra da Fase 6. |

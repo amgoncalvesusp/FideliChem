@@ -67,6 +67,15 @@ from .models import (
     Project,
     SourceArtifact,
 )
+from .table_importer import (
+    ColumnRole,
+    IdentityColumnMapping,
+    ScoreColumnMapping,
+    ScoreDirection,
+    ScoreScope,
+    TableMappingPreset,
+    TableMappingSchema,
+)
 
 __all__ = [
     "ActorKind",
@@ -81,6 +90,7 @@ __all__ = [
     "ChemistryError",
     "ChemistryWarning",
     "ChemistryWarningCode",
+    "ColumnRole",
     "Compound",
     "DetectionReport",
     "DockingRunRecord",
@@ -89,6 +99,7 @@ __all__ = [
     "DuplicateImportError",
     "IdentityActor",
     "IdentityClaim",
+    "IdentityColumnMapping",
     "IdentityDecision",
     "IdentityError",
     "IdentityResolution",
@@ -116,11 +127,16 @@ __all__ = [
     "QCIssue",
     "QCSeverity",
     "RawCompoundRecord",
+    "ScoreColumnMapping",
+    "ScoreDirection",
     "ScoreObservationRecord",
+    "ScoreScope",
     "SelectionMode",
     "SourceArtifact",
     "SourceArtifactRecord",
     "SourceSystem",
+    "TableMappingPreset",
+    "TableMappingSchema",
     "TargetRecord",
     "TautomerEnumerationLimitError",
     "UnsafePathError",

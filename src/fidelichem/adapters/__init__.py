@@ -8,11 +8,13 @@ from .base import (
 )
 from .fake import FakeAdapter
 from .registry import AdapterRegistry
+from .table import UniversalTableAdapter
 
 __all__ = [
     "AdapterRegistry",
     "EvidenceAdapter",
     "FakeAdapter",
+    "UniversalTableAdapter",
     "build_import_plan",
     "compute_source_artifacts",
     "scan_source_files",

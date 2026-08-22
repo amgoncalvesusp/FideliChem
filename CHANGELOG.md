@@ -22,6 +22,11 @@ All notable changes to FideliChem will be documented in this file.
 - DuplicateImportDetector enforcing deduplication on completed project batches while permitting re-import after rollback/failure.
 - ImportManager orchestrating discovery, validation, chemical identity confirmation, and atomic persistence.
 - Fake reference adapter and end-to-end acceptance pipeline test suite.
+- Universal Table Importer domain models (ColumnRole, ScoreDirection, ScoreScope, ScoreColumnMapping, IdentityColumnMapping, TableMappingSchema, TableMappingPreset).
+- Robust tabular file inspection and readers supporting CSV, TSV, JSON, and JSONL with strict missing data preservation (None instead of zero).
+- PresetManager for saving, loading, listing, and heuristic header matching of reusable mapping templates.
+- UniversalTableAdapter implementing EvidenceAdapter with full integration into ImportManager and chemical identity resolution.
+
 
 
 ### Changed
