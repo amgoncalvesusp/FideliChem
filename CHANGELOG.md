@@ -67,6 +67,10 @@ All notable changes to FideliChem will be documented in this file.
 - Audited multi-format export engine (`ExportEngine`) with support for CSV, JSON, Excel (native and XML spreadsheet fallback), and Parquet formats.
 - Cryptographic provenance and audit manifest generation (`manifest.json`) verifying SHA-256 digests and file sizes for all generated artifacts.
 - Computational Methods and Reproducibility report generator (`generate_methods_report`) documenting parameterization, normalization schemes, consensus cutoffs, and decision policies.
+- Full Command-Line Interface (`fidelichem`) with subcommands for GUI launching (`gui`), adapter probing (`probe`), and project dataset exporting (`export`).
+- Automated release packaging pipeline (`scripts/build_release.py`) generating verified source distributions (`.tar.gz`), universal binary wheels (`.whl`), and cryptographic `SHA256SUMS.txt` digests.
+- Complete 17-phase execution of the master software production plan (`FideliChem_PLANO_CODEX.md`).
+
 
 
 

@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-15-export-reproducibility`
-- Base integrada: `feat/phase-14-gui-completa`
-- Última fase concluída: **Fase 15 — Export + Reproducibility**
-- Etapa ativa: nenhuma; Fase 15 concluída com sucesso.
-- Próxima ação exata: iniciar a Fase 16 — Packaging e Release.
+- Branch de execução: `feat/phase-16-packaging-release`
+- Base integrada: `feat/phase-15-export-reproducibility`
+- Última fase concluída: **Fase 16 — Packaging e Release (Todas as Fases 0–16 Concluídas)**
+- Etapa ativa: nenhuma; Todas as 17 fases (Fase 0 a Fase 16) do plano mestre de produção foram integralmente concluídas.
+- Próxima ação exata: consolidação e entrega final do software FideliChem.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -32,7 +32,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 13 — Decision Engine | Concluída | DecisionProfile versionado, critérios tipados (exclusion/mandatory/rank/warning), motor determinístico de justificativas e recomendações de próxima evidência, 563 testes passando com 88,93% de branch coverage. |
 | 14 — GUI completa | Concluída | PySide6 MainWindow com sidebar e stacked views (Project, Import, Compounds 3-pane, Docking, Interactions, Dynamics, Decision, QC, Exports), 573 testes passando com 89,04% de branch coverage. |
 | 15 — Export + reproducibility | Concluída | ExportEngine, exportadores tabulares multi-formato (CSV, JSON, XLSX, Parquet), Methods Report em Markdown e manifestos criptográficos SHA-256 (`manifest.json`), 577 testes passando com 88,70% de branch coverage. |
-| 16 — Packaging e release | Pendente | Próxima fase final; iniciar especificação e release pipeline. |
+| 16 — Packaging e release | Concluída | Release builder `scripts/build_release.py`, CLI commands (`gui`, `probe`, `export`), builds Wheel e Sdist verificadas com `SHA256SUMS.txt`, 581 testes passando com 88,42% de branch coverage. |
+
 
 
 ## Último gate verificado
