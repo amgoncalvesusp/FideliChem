@@ -44,14 +44,32 @@ def _chemistry_integrity(
     detail = str(error.orig).lower()
     if "foreign key" in detail:
         return ForeignKeyViolationError(f"{entity} references a missing parent")
-    if entity == "alias" and ("unique" in detail or "primary key" in detail):
-        return AliasConflictError()
-    if entity == "identity resolution" and (
-        "unique" in detail
-        or "identity resolution" in detail
-        or "constraint" in detail
-    ):
-        return IdentityResolutionConflictError()
+    if entity == "alias":
+        if (
+            "unique constraint failed: alias.import_batch_id, alias.source_system, "
+            "alias.source_value" in detail
+        ):
+            return AliasConflictError()
+        if "unique constraint failed: alias.id" in detail:
+            return DuplicateRecordError("alias already exists")
+    if entity == "identity resolution":
+        conflict_markers = (
+            "identity resolution root must be confirmed",
+            "identity resolution predecessor alias mismatch",
+            "identity resolution predecessor already has successor",
+            "identity resolution state ownership mismatch",
+            "identity resolution transition is invalid",
+            "identity resolution restore is invalid",
+        )
+        if any(marker in detail for marker in conflict_markers):
+            return IdentityResolutionConflictError()
+        if (
+            "unique constraint failed: identity_resolution.alias_id" in detail
+            or "unique constraint failed: identity_resolution.supersedes_id" in detail
+        ):
+            return IdentityResolutionConflictError()
+        if "unique constraint failed: identity_resolution.id" in detail:
+            return DuplicateRecordError("identity resolution already exists")
     if "unique" in detail or "primary key" in detail:
         return DuplicateRecordError(f"{entity} already exists")
     return StorageIntegrityError(f"{entity} violates storage integrity")
