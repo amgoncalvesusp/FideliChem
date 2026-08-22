@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from sqlalchemy import Engine, exists, select
+from sqlalchemy import Engine, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -150,6 +150,7 @@ class PersistentIdentityIndex:
                     _IdentityResolutionRow,
                     _MolecularStateRow,
                     _CompoundRow,
+                    _ImportBatchRow,
                 )
                 .join(
                     _AliasRow,
@@ -174,15 +175,7 @@ class PersistentIdentityIndex:
                     _IdentityResolutionRow.decision != "retracted",
                 )
             )
-            successor = _IdentityResolutionRow.__table__.alias("successor")
-            statement = statement.where(
-                ~exists(
-                    select(successor.c.id).where(
-                        successor.c.supersedes_id == _IdentityResolutionRow.id
-                    )
-                ),
-                _active_batch_clause(),
-            ).order_by(
+            statement = statement.order_by(
                 _CompoundRow.id,
                 _MolecularStateRow.id.is_(None),
                 _MolecularStateRow.id,
@@ -190,13 +183,45 @@ class PersistentIdentityIndex:
             )
             return _safe_read(
                 "identity resolution",
-                lambda: tuple(
-                    _active_candidate(resolution, state, compound)
-                    for resolution, state, compound in session.execute(statement)
-                ),
+                lambda: _active_alias_candidates(session, statement),
             )
 
         return self._read(query)
+
+
+def _active_alias_candidates(
+    session: Session, statement: Any
+) -> tuple[ResolutionCandidate, ...]:
+    rows = tuple(session.execute(statement))
+    validated: dict[str, tuple[Any, Any, Any, Any, IdentityResolution]] = {}
+    superseded_ids: set[str] = set()
+    for resolution, state, compound, batch in rows:
+        resolution_value = _validate_resolution_row(session, resolution)
+        _validate_batch_status(batch.status)
+        validated[resolution.id] = (
+            resolution,
+            state,
+            compound,
+            batch,
+            resolution_value,
+        )
+    for resolution, _, _, _, _ in validated.values():
+        successors = _successors(session, resolution.id)
+        if successors:
+            superseded_ids.add(resolution.id)
+        for successor, successor_batch in successors:
+            _validate_batch_status(successor_batch.status)
+            _validate_resolution_row(session, successor)
+    candidates = []
+    for resolution, state, compound, batch, resolution_value in validated.values():
+        if (
+            resolution_value.decision is not IdentityDecision.RETRACTED
+            and resolution_value.compound_id is not None
+            and batch.status in {"in_progress", "completed", "failed"}
+            and resolution.id not in superseded_ids
+        ):
+            candidates.append(_active_candidate(resolution, state, compound))
+    return tuple(sorted(candidates, key=lambda item: item.sort_key))
 
 
 def _session_factory_for(engine: Engine) -> SessionFactory:
@@ -228,10 +253,6 @@ def _inchi_candidates(
     return tuple(sorted(candidates, key=lambda item: item.sort_key))
 
 
-def _active_batch_clause() -> Any:
-    return _ImportBatchRow.status != "rolled_back"
-
-
 def _catalog_state_active(session: Session, state_id: str) -> bool:
     statement = (
         select(_IdentityResolutionRow, _ImportBatchRow)
@@ -260,12 +281,12 @@ def _catalog_target_active(session: Session, statement: Any) -> bool:
         successors = _successors(session, resolution.id)
         if successors:
             active_successor = True
-            for successor in successors:
+            for successor, successor_batch in successors:
+                _validate_batch_status(successor_batch.status)
                 _validate_resolution_row(session, successor)
         else:
             active_successor = False
-        if batch.status not in {"in_progress", "completed", "failed", "rolled_back"}:
-            raise CorruptStoredDataError("stored identity resolution data is invalid")
+        _validate_batch_status(batch.status)
         if (
             resolution_value.decision is not IdentityDecision.RETRACTED
             and resolution_value.compound_id is not None
@@ -278,11 +299,19 @@ def _catalog_target_active(session: Session, statement: Any) -> bool:
 
 def _successors(
     session: Session, resolution_id: str
-) -> tuple[_IdentityResolutionRow, ...]:
-    statement = select(_IdentityResolutionRow).where(
-        _IdentityResolutionRow.supersedes_id == resolution_id
+) -> tuple[tuple[_IdentityResolutionRow, _ImportBatchRow], ...]:
+    statement = (
+        select(_IdentityResolutionRow, _ImportBatchRow)
+        .join(_AliasRow, _AliasRow.id == _IdentityResolutionRow.alias_id)
+        .join(_ImportBatchRow, _ImportBatchRow.id == _AliasRow.import_batch_id)
+        .where(_IdentityResolutionRow.supersedes_id == resolution_id)
     )
-    return tuple(row for (row,) in session.execute(statement))
+    return tuple(session.execute(statement).tuples().all())
+
+
+def _validate_batch_status(status: str) -> None:
+    if status not in {"in_progress", "completed", "failed", "rolled_back"}:
+        raise CorruptStoredDataError("stored identity resolution data is invalid")
 
 
 def _validate_resolution_row(

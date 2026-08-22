@@ -90,6 +90,14 @@ def test_report_action_is_exhaustive_for_every_resolution_kind(
         catalog_action=action,
     )
     assert report.catalog_action is action
+    if action is CatalogAction.REUSE_COMPOUND:
+        dormant_report = ResolutionReport(
+            kind=ResolutionKind.NEW_STATE,
+            reason=ResolutionReason.UNRESOLVED,
+            catalog_action=CatalogAction.REUSE_COMPOUND,
+            catalog_match_dormant=True,
+        )
+        assert dormant_report.catalog_match_dormant is True
 
 
 @pytest.mark.parametrize("kind", list(ResolutionKind))

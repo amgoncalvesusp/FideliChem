@@ -235,6 +235,75 @@ def test_active_alias_order_is_state_first_and_null_state_last(
     ]
 
 
+def test_active_alias_order_is_compound_then_state_then_resolution(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    first_batch = _batch(
+        project.id,
+        "16161616-1616-4616-8616-161616161616",
+        ImportStatus.COMPLETED,
+    )
+    second_batch = _batch(
+        project.id,
+        "17171717-1717-4717-8717-171717171717",
+        ImportStatus.COMPLETED,
+    )
+    second_alias_id = "18181818-1818-4818-8818-181818181818"
+    second_compound_id = "11111111-1111-4111-8111-111111111111"
+    second_resolution_id = "19191919-1919-4919-8919-191919191919"
+    second_compound = Compound(
+        id=second_compound_id,
+        canonical_smiles="CCN",
+        isomeric_smiles="CCN",
+        formula="C2H7N",
+        molecular_weight=45.085,
+        structure_hash="d" * 64,
+        inchikey="LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
+        chemistry_policy_id="fidelichem.rdkit-identity.v1",
+        rdkit_version="2026.3.4",
+        inchi_version="1.0.0",
+        created_at=NOW,
+    )
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(first_batch)
+        uow.import_batches.add(second_batch)
+        uow.compounds.add(_compound())
+        uow.compounds.add(second_compound)
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.aliases.add(_alias(first_batch.id))
+        uow.aliases.add(
+            Alias(
+                id=second_alias_id,
+                source_system="gold",
+                source_value="ligand_17",
+                import_batch_id=second_batch.id,
+                created_at=NOW,
+            )
+        )
+        uow.identity_resolutions.add(_resolution())
+        uow.identity_resolutions.add(
+            _resolution(
+                alias_id=second_alias_id,
+                resolution_id=second_resolution_id,
+                compound_id=second_compound_id,
+                molecular_state_id=None,
+            )
+        )
+
+    active = PersistentIdentityIndex(migrated_engine).active_by_alias(
+        "gold", "ligand_17"
+    )
+    assert [
+        (candidate.compound_id, candidate.molecular_state_id)
+        for candidate in active
+    ] == [
+        (second_compound_id, None),
+        (COMPOUND_ID, STATE_A_ID),
+    ]
+
+
 def test_retraction_and_rolled_back_batch_hide_active_alias_not_catalog(
     migrated_engine: Engine,
 ) -> None:
@@ -332,6 +401,8 @@ def test_index_public_surface_is_select_only() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id in {"connection", "session"}
         and node.func.attr
         in {"add", "commit", "delete", "flush", "insert", "text", "update"}
     }
@@ -514,18 +585,27 @@ def test_state_with_missing_compound_owner_is_corruption_not_empty_result(
         connection.execute(
             text(
                 "INSERT INTO molecular_state "
-                "(id,compound_id,state_smiles,formal_charge,"
+                "(id,compound_id,state_smiles,state_inchikey,formal_charge,"
                 "stereochemistry_signature,protonation_signature,"
                 "tautomer_signature,state_hash,chemistry_policy_id,rdkit_version) "
-                "VALUES (:id,'missing-owner','CC',0,'stereo','neutral','canonical',"
+                "VALUES (:id,'missing-owner','CC',:inchikey,0,'stereo','neutral',"
+                "'canonical',"
                 ":hash,'policy','rdkit')"
             ),
-            {"id": STATE_A_ID, "hash": "a" * 64},
+            {
+                "id": STATE_A_ID,
+                "hash": "a" * 64,
+                "inchikey": "LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
+            },
         )
         connection.commit()
 
     with pytest.raises(CorruptStoredDataError, match="stored molecular state"):
         PersistentIdentityIndex(migrated_engine).catalog_by_state_hash("a" * 64)
+    with pytest.raises(CorruptStoredDataError, match="stored molecular state"):
+        PersistentIdentityIndex(migrated_engine).catalog_by_generated_inchikey(
+            "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
+        )
 
 
 def test_corrupt_contributor_cannot_make_catalog_candidate_look_active(
@@ -566,6 +646,107 @@ def test_corrupt_contributor_cannot_make_catalog_candidate_look_active(
 
     with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
         PersistentIdentityIndex(migrated_engine).catalog_by_state_hash("a" * 64)
+
+
+def test_corrupt_retracted_successor_is_not_hidden_by_active_filter(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "fefefefe-fefe-4fef-8fef-fefefefefefe",
+        ImportStatus.COMPLETED,
+    )
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.aliases.add(_alias(batch.id))
+        uow.identity_resolutions.add(_resolution())
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "supersedes_id,decided_at,actor_kind) VALUES "
+                "(:id,:alias,'retracted',:compound,:state,:supersedes,:decided,'system')"
+            ),
+            {
+                "id": "abababab-abab-4bab-8bab-abababababab",
+                "alias": ALIAS_ID,
+                "compound": COMPOUND_ID,
+                "state": STATE_A_ID,
+                "supersedes": ROOT_ID,
+                "decided": "2026-08-22T12:01:00Z",
+            },
+        )
+        connection.commit()
+
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        PersistentIdentityIndex(migrated_engine).active_by_alias("gold", "ligand_17")
+
+
+def test_corrupt_batch_status_is_not_hidden_by_active_filter(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch_id = "f1f1f1f1-f1f1-41f1-81f1-f1f1f1f1f1f1"
+    alias_id = "f2f2f2f2-f2f2-42f2-82f2-f2f2f2f2f2f2"
+    resolution_id = "f3f3f3f3-f3f3-43f3-83f3-f3f3f3f3f3f3"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text(
+                "INSERT INTO import_batch "
+                "(id,project_id,adapter_id,adapter_version,started_at,status,"
+                "source_root,file_count) VALUES "
+                "(:id,:project,'adapter','1',:started,'corrupt','inputs',0)"
+            ),
+            {
+                "id": batch_id,
+                "project": PROJECT_ID,
+                "started": "2026-08-22T12:00:00Z",
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO alias "
+                "(id,source_system,source_value,import_batch_id,created_at) "
+                "VALUES (:id,'gold','corrupt-alias',:batch,:created)"
+            ),
+            {
+                "id": alias_id,
+                "batch": batch_id,
+                "created": "2026-08-22T12:00:00Z",
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "decided_at,actor_kind) VALUES "
+                "(:id,:alias,'confirmed',:compound,:state,:decided,'system')"
+            ),
+            {
+                "id": resolution_id,
+                "alias": alias_id,
+                "compound": COMPOUND_ID,
+                "state": STATE_A_ID,
+                "decided": "2026-08-22T12:00:00Z",
+            },
+        )
+        connection.commit()
+
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        PersistentIdentityIndex(migrated_engine).active_by_alias(
+            "gold", "corrupt-alias"
+        )
 
 
 def test_reopen_uses_a_new_engine_and_keeps_dormant_catalog_rows(
