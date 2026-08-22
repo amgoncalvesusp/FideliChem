@@ -28,6 +28,8 @@ STATE_A_ID = "33333333-3333-4333-8333-333333333333"
 STATE_B_ID = "44444444-4444-4444-8444-444444444444"
 ALIAS_ID = "55555555-5555-4555-8555-555555555555"
 ROOT_ID = "66666666-6666-4666-8666-666666666666"
+MISSING_COMPOUND_ID = "99999999-9999-4999-8999-999999999999"
+MISSING_STATE_ID = "aaaaaaaa-9999-4999-8999-999999999999"
 
 
 def _project() -> Project:
@@ -821,6 +823,425 @@ def test_retracted_only_corruption_is_not_hidden_by_active_filter(
         )
 
 
+def test_corrupt_root_is_found_through_full_predecessor_chain(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "c1c1c1c1-c1c1-41c1-81c1-c1c1c1c1c1c1",
+        ImportStatus.COMPLETED,
+    )
+    middle_id = "c2c2c2c2-c2c2-42c2-82c2-c2c2c2c2c2c2"
+    leaf_id = "c3c3c3c3-c3c3-43c3-83c3-c3c3c3c3c3c3"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.molecular_states.add(_state(STATE_B_ID, "b" * 64))
+        uow.aliases.add(_alias(batch.id))
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        for row in (
+            {
+                "id": ROOT_ID,
+                "decision": "confirmed",
+                "compound": COMPOUND_ID,
+                "state": STATE_A_ID,
+                "supersedes": None,
+                "actor": "corrupt",
+            },
+            {
+                "id": middle_id,
+                "decision": "reassigned",
+                "compound": COMPOUND_ID,
+                "state": STATE_A_ID,
+                "supersedes": ROOT_ID,
+                "actor": "system",
+            },
+            {
+                "id": leaf_id,
+                "decision": "reassigned",
+                "compound": COMPOUND_ID,
+                "state": STATE_B_ID,
+                "supersedes": middle_id,
+                "actor": "system",
+            },
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO identity_resolution "
+                    "(id,alias_id,decision,compound_id,molecular_state_id,"
+                    "supersedes_id,decided_at,actor_kind) VALUES "
+                    "(:id,:alias,:decision,:compound,:state,:supersedes,"
+                    ":decided,:actor)"
+                ),
+                {
+                    **row,
+                    "alias": ALIAS_ID,
+                    "decided": "2026-08-22T12:00:00Z",
+                },
+            )
+        connection.commit()
+
+    index = PersistentIdentityIndex(migrated_engine)
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.active_by_alias("gold", "ligand_17")
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.catalog_by_state_hash("b" * 64)
+
+
+def test_successor_with_missing_alias_is_not_invisible(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "c4c4c4c4-c4c4-44c4-84c4-c4c4c4c4c4c4",
+        ImportStatus.COMPLETED,
+    )
+    missing_alias_id = "c5c5c5c5-c5c5-45c5-85c5-c5c5c5c5c5c5"
+    successor_id = "c6c6c6c6-c6c6-46c6-86c6-c6c6c6c6c6c6"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.aliases.add(_alias(batch.id))
+        uow.identity_resolutions.add(_resolution())
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "supersedes_id,decided_at,actor_kind) VALUES "
+                "(:id,:alias,'reassigned',:compound,:state,:supersedes,:decided,'system')"
+            ),
+            {
+                "id": successor_id,
+                "alias": missing_alias_id,
+                "compound": COMPOUND_ID,
+                "state": STATE_A_ID,
+                "supersedes": ROOT_ID,
+                "decided": "2026-08-22T12:01:00Z",
+            },
+        )
+        connection.commit()
+
+    index = PersistentIdentityIndex(migrated_engine)
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.active_by_alias("gold", "ligand_17")
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.catalog_by_state_hash("a" * 64)
+
+
+def test_successor_with_missing_batch_is_not_invisible(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "c7c7c7c7-c7c7-47c7-87c7-c7c7c7c7c7c7",
+        ImportStatus.COMPLETED,
+    )
+    orphan_alias_id = "c8c8c8c8-c8c8-48c8-88c8-c8c8c8c8c8c8"
+    successor_id = "c9c9c9c9-c9c9-49c9-89c9-c9c9c9c9c9c9"
+    missing_batch_id = "d0d0d0d0-d0d0-40d0-80d0-d0d0d0d0d0d0"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.aliases.add(_alias(batch.id))
+        uow.identity_resolutions.add(_resolution())
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO alias "
+                "(id,source_system,source_value,import_batch_id,created_at) "
+                "VALUES (:id,'gold','orphan-batch',:batch,:created)"
+            ),
+            {
+                "id": orphan_alias_id,
+                "batch": missing_batch_id,
+                "created": "2026-08-22T12:00:00Z",
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "supersedes_id,decided_at,actor_kind) VALUES "
+                "(:id,:alias,'reassigned',:compound,:state,:supersedes,:decided,'system')"
+            ),
+            {
+                "id": successor_id,
+                "alias": orphan_alias_id,
+                "compound": COMPOUND_ID,
+                "state": STATE_A_ID,
+                "supersedes": ROOT_ID,
+                "decided": "2026-08-22T12:01:00Z",
+            },
+        )
+        connection.commit()
+
+    index = PersistentIdentityIndex(migrated_engine)
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.active_by_alias("gold", "ligand_17")
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.catalog_by_state_hash("a" * 64)
+
+
+def test_missing_predecessor_is_safe_in_active_and_catalog(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "d1d1d1d1-d1d1-41d1-81d1-d1d1d1d1d1d1",
+        ImportStatus.COMPLETED,
+    )
+    missing_predecessor = "d2d2d2d2-d2d2-42d2-82d2-d2d2d2d2d2d2"
+    successor_id = "d3d3d3d3-d3d3-43d3-83d3-d3d3d3d3d3d3"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.aliases.add(_alias(batch.id))
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "supersedes_id,decided_at,actor_kind) VALUES "
+                "(:id,:alias,'reassigned',:compound,:state,:supersedes,:decided,'system')"
+            ),
+            {
+                "id": successor_id,
+                "alias": ALIAS_ID,
+                "compound": COMPOUND_ID,
+                "state": STATE_A_ID,
+                "supersedes": missing_predecessor,
+                "decided": "2026-08-22T12:01:00Z",
+            },
+        )
+        connection.commit()
+
+    index = PersistentIdentityIndex(migrated_engine)
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.active_by_alias("gold", "ligand_17")
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.catalog_by_state_hash("a" * 64)
+
+
+def test_cycle_in_resolution_chain_is_safe_in_active_and_catalog(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "d4d4d4d4-d4d4-44d4-84d4-d4d4d4d4d4d4",
+        ImportStatus.COMPLETED,
+    )
+    first_id = "d5d5d5d5-d5d5-45d5-85d5-d5d5d5d5d5d5"
+    second_id = "d6d6d6d6-d6d6-46d6-86d6-d6d6d6d6d6d6"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.aliases.add(_alias(batch.id))
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        for row_id, predecessor in (
+            (first_id, second_id),
+            (second_id, first_id),
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO identity_resolution "
+                    "(id,alias_id,decision,compound_id,molecular_state_id,"
+                    "supersedes_id,decided_at,actor_kind) VALUES "
+                    "(:id,:alias,'reassigned',:compound,:state,:supersedes,"
+                    ":decided,'system')"
+                ),
+                {
+                    "id": row_id,
+                    "alias": ALIAS_ID,
+                    "compound": COMPOUND_ID,
+                    "state": STATE_A_ID,
+                    "supersedes": predecessor,
+                    "decided": "2026-08-22T12:01:00Z",
+                },
+            )
+        connection.commit()
+
+    index = PersistentIdentityIndex(migrated_engine)
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.active_by_alias("gold", "ligand_17")
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.catalog_by_state_hash("a" * 64)
+
+
+def test_cross_alias_successor_is_safe_in_active_and_catalog(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "d7d7d7d7-d7d7-47d7-87d7-d7d7d7d7d7d7",
+        ImportStatus.COMPLETED,
+    )
+    second_alias_id = "d8d8d8d8-d8d8-48d8-88d8-d8d8d8d8d8d8"
+    successor_id = "d9d9d9d9-d9d9-49d9-89d9-d9d9d9d9d9d9"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.aliases.add(_alias(batch.id))
+        uow.aliases.add(
+            Alias(
+                id=second_alias_id,
+                source_system="gold",
+                source_value="cross-alias",
+                import_batch_id=batch.id,
+                created_at=NOW,
+            )
+        )
+        uow.identity_resolutions.add(_resolution())
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO identity_resolution "
+                "(id,alias_id,decision,compound_id,molecular_state_id,"
+                "supersedes_id,decided_at,actor_kind) VALUES "
+                "(:id,:alias,'reassigned',:compound,:state,:supersedes,:decided,'system')"
+            ),
+            {
+                "id": successor_id,
+                "alias": second_alias_id,
+                "compound": COMPOUND_ID,
+                "state": STATE_A_ID,
+                "supersedes": ROOT_ID,
+                "decided": "2026-08-22T12:01:00Z",
+            },
+        )
+        connection.commit()
+
+    index = PersistentIdentityIndex(migrated_engine)
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.active_by_alias("gold", "ligand_17")
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.catalog_by_state_hash("a" * 64)
+
+
+def test_forked_successors_are_safe_in_active_and_catalog(
+    migrated_engine: Engine,
+) -> None:
+    project = _project()
+    batch = _batch(
+        project.id,
+        "e1e1e1e1-e1e1-41e1-81e1-e1e1e1e1e1e1",
+        ImportStatus.COMPLETED,
+    )
+    first_successor = "e2e2e2e2-e2e2-42e2-82e2-e2e2e2e2e2e2"
+    second_successor = "e3e3e3e3-e3e3-43e3-83e3-e3e3e3e3e3e3"
+    with UnitOfWork(migrated_engine) as uow:
+        uow.projects.add(project)
+        uow.import_batches.add(batch)
+        uow.compounds.add(_compound())
+        uow.molecular_states.add(_state(STATE_A_ID, "a" * 64))
+        uow.aliases.add(_alias(batch.id))
+        uow.identity_resolutions.add(_resolution())
+    with migrated_engine.connect() as connection:
+        connection.execute(text("PRAGMA ignore_check_constraints=ON"))
+        connection.execute(
+            text("DROP TRIGGER trg_identity_resolution_validate_insert")
+        )
+        table_sql = connection.execute(
+            text(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type='table' AND name='identity_resolution'"
+            )
+        ).scalar_one()
+        connection.execute(text("PRAGMA writable_schema=ON"))
+        connection.execute(
+            text(
+                "UPDATE sqlite_master SET sql=:sql "
+                "WHERE type='table' AND name='identity_resolution'"
+            ),
+            {
+                "sql": table_sql.replace(
+                    "CONSTRAINT uq_identity_resolution_supersedes "
+                    "UNIQUE (supersedes_id), ",
+                    "",
+                )
+            },
+        )
+        connection.execute(
+            text(
+                "DELETE FROM sqlite_master WHERE type='index' "
+                "AND name='sqlite_autoindex_identity_resolution_2'"
+            )
+        )
+        connection.execute(text("PRAGMA writable_schema=OFF"))
+        connection.execute(text("PRAGMA schema_version=2147483000"))
+        for successor_id in (first_successor, second_successor):
+            connection.execute(
+                text(
+                    "INSERT INTO identity_resolution "
+                    "(id,alias_id,decision,compound_id,molecular_state_id,"
+                    "supersedes_id,decided_at,actor_kind) VALUES "
+                    "(:id,:alias,'reassigned',:compound,:state,:supersedes,"
+                    ":decided,'system')"
+                ),
+                {
+                    "id": successor_id,
+                    "alias": ALIAS_ID,
+                    "compound": COMPOUND_ID,
+                    "state": STATE_A_ID,
+                    "supersedes": ROOT_ID,
+                    "decided": "2026-08-22T12:01:00Z",
+                },
+            )
+        connection.commit()
+
+    index = PersistentIdentityIndex(migrated_engine)
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.active_by_alias("gold", "ligand_17")
+    with pytest.raises(CorruptStoredDataError, match="stored identity resolution"):
+        index.catalog_by_state_hash("a" * 64)
+
+
 def test_missing_compound_target_is_safe_in_active_projection(
     migrated_engine: Engine,
 ) -> None:
@@ -855,9 +1276,13 @@ def test_missing_compound_target_is_safe_in_active_projection(
                 "(id,alias_id,decision,compound_id,molecular_state_id,"
                 "decided_at,actor_kind) "
                 "VALUES ('d2d2d2d2-d2d2-42d2-82d2-d2d2d2d2d2d2',:alias,'confirmed',"
-                "'missing-compound',NULL,:decided,'system')"
+                ":missing_compound,NULL,:decided,'system')"
             ),
-            {"alias": alias_id, "decided": "2026-08-22T12:00:00Z"},
+            {
+                "alias": alias_id,
+                "missing_compound": MISSING_COMPOUND_ID,
+                "decided": "2026-08-22T12:00:00Z",
+            },
         )
         connection.commit()
 
@@ -902,11 +1327,12 @@ def test_missing_state_target_is_safe_in_active_projection(
                 "(id,alias_id,decision,compound_id,molecular_state_id,"
                 "decided_at,actor_kind) "
                 "VALUES ('d5d5d5d5-d5d5-45d5-85d5-d5d5d5d5d5d5',:alias,'confirmed',"
-                ":compound,'missing-state',:decided,'system')"
+                ":compound,:missing_state,:decided,'system')"
             ),
             {
                 "alias": alias_id,
                 "compound": COMPOUND_ID,
+                "missing_state": MISSING_STATE_ID,
                 "decided": "2026-08-22T12:00:00Z",
             },
         )
