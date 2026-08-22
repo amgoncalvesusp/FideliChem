@@ -196,6 +196,18 @@ class CompoundRepository(_ChemistryRepositoryBase):
             )(session.get(_CompoundRow, compound_id)),
         )
 
+    def get_by_structure_hash(self, structure_hash: str) -> Compound | None:
+        session = self._require_session()
+        statement = select(_CompoundRow).where(
+            _CompoundRow.structure_hash == structure_hash
+        )
+        return self._read(
+            "compound",
+            lambda: (lambda row: None if row is None else _compound_model(row))(
+                session.execute(statement).scalar_one_or_none()
+            ),
+        )
+
 
 class MolecularStateRepository(_ChemistryRepositoryBase):
     """Append-only molecular-state repository."""
@@ -227,6 +239,18 @@ class MolecularStateRepository(_ChemistryRepositoryBase):
             lambda: (
                 lambda row: None if row is None else _state_model(row)
             )(session.get(_MolecularStateRow, state_id)),
+        )
+
+    def get_by_state_hash(self, state_hash: str) -> MolecularState | None:
+        session = self._require_session()
+        statement = select(_MolecularStateRow).where(
+            _MolecularStateRow.state_hash == state_hash
+        )
+        return self._read(
+            "molecular state",
+            lambda: (lambda row: None if row is None else _state_model(row))(
+                session.execute(statement).scalar_one_or_none()
+            ),
         )
 
 
@@ -265,6 +289,22 @@ class AliasRepository(_ChemistryRepositoryBase):
             "alias",
             lambda: tuple(
                 _alias_model(row) for row in session.execute(statement).scalars()
+            ),
+        )
+
+    def get_by_source(
+        self, batch_id: str, source_system: str, source_value: str
+    ) -> Alias | None:
+        session = self._require_session()
+        statement = select(_AliasRow).where(
+            _AliasRow.import_batch_id == batch_id,
+            _AliasRow.source_system == source_system,
+            _AliasRow.source_value == source_value,
+        )
+        return self._read(
+            "alias",
+            lambda: (lambda row: None if row is None else _alias_model(row))(
+                session.execute(statement).scalar_one_or_none()
             ),
         )
 
