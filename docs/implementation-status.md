@@ -7,10 +7,10 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
-- Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: **Task 8 concluída localmente; aguardando review Terra final da Fase 2**
-- Próxima ação exata: executar a review Terra xhigh da Fase 2 sobre o diff
-  completo; somente após GO iniciar a exploração da Fase 3.
+- Última fase concluída: **Fase 2 — Chemistry + Identity Resolver**
+- Etapa ativa: nenhuma; Fase 3 ainda não iniciada.
+- Próxima ação exata: iniciar a exploração da Fase 3 — Adapter SDK + Import
+  Manager — somente quando solicitado.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -19,8 +19,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento — review final pendente | Tasks 1–8 concluídas localmente; falta apenas a review Terra final antes do checkpoint de exploração da Fase 3. |
-| 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
+| 2 — Chemistry + Identity Resolver | Concluída | Tasks 1–8, gate global e review Terra integral aprovados; zero Critical/Important/Minor. |
+| 3 — Adapter SDK + Import Manager | Pendente | Próxima fase; exploração ainda não iniciada. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
 | 6 — GOLD Adapter | Pendente | Aguardar gate Terra da Fase 5. |
@@ -37,17 +37,17 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Último gate verificado
 
-Task 7 da Fase 2, gate final em 2026-08-22:
+Fase 2, gate final em 2026-08-22:
 
-- `pytest`: 453 testes aprovados;
-- cobertura global de branches: 89,67%; serviço de identidade: 82,06%;
-- 29 testes focados de serviço/audit/concorrência aprovados;
-- races e interposers: 5/5 repetições locais (45 execuções) e seis races
-  repetidas 10 vezes pelo reviewer (60 execuções), sem flake;
+- `pytest`: 454 testes aprovados;
+- cobertura global de branches: 89,90%; cobertura scoped da Fase 2: 90,63%;
+- workflow de projeto/reopen e 37 regressões de identidade aprovados;
 - Ruff, mypy, `uv lock`, build e `pip check`: aprovados;
 - `pip-audit`: nenhuma vulnerabilidade conhecida nas dependências publicadas;
-- working tree e `git diff --check`: limpos;
-- review Terra final: GO, zero Critical, Important ou Minor.
+- migration head `0002_chemistry_identity`, `integrity_check=ok` e
+  `foreign_key_check=[]`;
+- review Terra integral sobre 42 commits: `PHASE 2 GO`, zero Critical,
+  Important ou Minor.
 
 ## Decisões congeladas da Fase 1
 
@@ -311,20 +311,20 @@ Task 7 da Fase 2, gate final em 2026-08-22:
   ação/kind/dormência/race, target, ator/rationale e targets anterior/novo.
 - Gate: Ruff, mypy, lock, pip-audit, build, pip check e diff check aprovados;
   review Terra final GO sem Critical, Important ou Minor.
-- Continuidade: Task 8 não foi iniciada por solicitação do usuário.
+- Continuidade: Task 8 foi concluída no gate final da Fase 2.
 
 ### Task 8 — workflow de projeto, ADRs e gate de integração
 
-- Estado: concluída localmente; review Terra final da Fase 2 ainda pendente.
+- Estado: concluída e aprovada; Task review GO e review integral `PHASE 2 GO`.
 - Entregue: `tests/integration/identity/test_phase2_workflow.py`, ADRs 0002 e
   0005, atualização de README/CHANGELOG e este checkpoint.
 - Workflow demonstrado: projeto realmente vazio, batch ativo, sal/retenção
   de mapas, `NEW_COMPOUND`, reopen com `EXACT_STATE`, `NEW_STATE` no mesmo
   parent, InChI nullable com warning no audit, alias-only sem nova linha de
   catálogo, claims resolver-only, autoridade de seleção, co-crystal e
-  tautomer incompleto sem writes, conflito com seleção inválida sem writes,
-  cadeia reassign/retract/restore/retract, reopen com alias oculto e catálogo
-  dormente reutilizável após rollback pelo `StorageService`.
+  tautomer incompleto sem writes, conflito com seleção inválida sem writes e
+  override humano report-listed auditado, cadeia reassign/retract/restore/
+  retract, reopen dormente antes e depois do rollback pelo `StorageService`.
 - Evidência: workflow focado `1 passed` em 1,88 s; regressões de identity
   `37 passed` em 8,47 s; comando global literal
   `uv run pytest --cov=fidelichem --cov-branch --cov-report=term-missing
@@ -346,10 +346,11 @@ Task 7 da Fase 2, gate final em 2026-08-22:
   humana de `CONFLICT` continua possível somente com target report-listed e
   rationale. O workflow cobre a rejeição de seleção não autorizada antes da
   UoW, sem alterar o contrato de override humano.
-- Próxima ação: review Terra xhigh final sobre ciência de hashes/maps,
-  policy/versionamento, salts/co-crystals, InChI, migrations/concorrência,
-  projeções, autoridade, restore, auditoria e lacunas de testes; após GO,
-  iniciar a exploração da Fase 3.
+- Commits: `b152505`/`2855e24` (workflow, ADRs e relatório) e
+  `46490b3`/`df94c4c` (fix round e evidência final).
+- Review: Task 8 GO após quatro Important corrigidos; review integral da Fase
+  2 sobre `3e2c69a..df94c4c` retornou `PHASE 2 GO`, sem findings.
+- Próxima ação: exploração da Fase 3, ainda não iniciada.
 
 ## Convenções de continuidade
 

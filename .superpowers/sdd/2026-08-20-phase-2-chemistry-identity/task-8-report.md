@@ -1,6 +1,6 @@
 # Task 8 — Phase 2 integration gate report
 
-- Status: **DONE_WITH_CONCERNS**
+- Status: **DONE**
 - Date: 2026-08-22
 - Branch: `feat/fidelichem-mvp-phases-1-16`
 - Scope: project/reopen workflow, ADRs, phase checkpoint, and verification
@@ -140,15 +140,13 @@ revision= 0002_chemistry_identity head= 0002_chemistry_identity integrity_check=
 - This report is added in the follow-up documentation commit so the
   implementation hash is stable and directly verifiable.
 
-## Remaining concerns and next action
+## Phase review and next action
 
-The local gate is complete, but the required fresh Terra xhigh Phase 2 review
-has not yet run in this worker. It must review map/hash science, policy
-versioning, salts/co-crystals, tautomer completion, optional InChI,
-migration/concurrency rules, catalog/alias projections, empty-project
-`NEW_COMPOUND`, selection/actor authority, restore transitions, atomic audit,
-security, and missing tests. Phase 2 must remain pending until that review is
-GO. After GO, the exact next action is Phase 3 adapter-SDK exploration.
+The fresh Terra xhigh review inspected the binding specification, plan,
+reports, migrations, production paths, targeted evidence, and the complete
+42-commit Phase 2 package (`3e2c69a..df94c4c`). Verdict: **PHASE 2 GO**, with
+no Critical, Important, or Minor findings. Phase 2 is complete. The next
+action is Phase 3 adapter-SDK exploration; it has not started.
 
 ## Fix round 1/5
 
@@ -190,5 +188,5 @@ uv run pytest --cov=fidelichem.chemistry --cov=fidelichem.identity --cov=fidelic
 454 passed in 46.96s; TOTAL 90.63% (2083 statements, 490 branches)
 ```
 
-The remaining concern is unchanged: the fresh Terra xhigh Phase 2 review is
-still required before marking Phase 2 complete.
+Fix round re-review: all four Important findings were addressed with no new
+Critical or Important issue. Task 8 verdict: GO.
