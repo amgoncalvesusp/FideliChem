@@ -8,8 +8,8 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 - Branch de execução: `feat/fidelichem-mvp-phases-1-16`
 - Base integrada: `main` em `3ad80bc`
 - Fase ativa: **Fase 2 — Chemistry + Identity Resolver**
-- Etapa ativa: Task 1 — dependências e modelos químicos imutáveis
-- Próxima ação exata: gerar o brief da Task 1 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` e iniciar TDD a partir de `fc84910`.
+- Etapa ativa: Task 2 — canonicalização RDKit limitada e versionada
+- Próxima ação exata: implementar por TDD a Task 2 de `docs/superpowers/plans/2026-08-20-phase-2-chemistry-identity.md` a partir de `d778228`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -18,7 +18,7 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 |---|---|---|
 | 0 — Bootstrap e decisões arquiteturais | Concluída | Integrada em `main`; 23 testes, 91,35% de branch coverage, Ruff, mypy, build e auditoria de dependências aprovados. |
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
-| 2 — Chemistry + Identity Resolver | Em andamento | Design/plano aprovados após três rounds de hardening; Task 1 é o próximo marco. |
+| 2 — Chemistry + Identity Resolver | Em andamento | Design aprovado e Task 1 concluída; Task 2 é o próximo marco. |
 | 3 — Adapter SDK + Import Manager | Pendente | Aguardar gate Terra da Fase 2. |
 | 4 — Universal Table Importer | Pendente | Aguardar gate Terra da Fase 3. |
 | 5 — Score Registry + normalization | Pendente | Aguardar gate Terra da Fase 4. |
@@ -183,6 +183,18 @@ Fase 1, gate final em 2026-08-20:
   atômica e auditada; nenhuma fusão silenciosa.
 - Próximo marco: Task 1 — pin de dependências e valores públicos congelados,
   sempre por RED-GREEN-REFACTOR e review independente.
+
+### Task 1 — dependências e modelos químicos imutáveis
+
+- Estado: concluída e aprovada após duas rodadas de correção/re-review.
+- Commits: `4f2f191` (implementação), `9afb262` (contratos seguros e bundles
+  coerentes) e `d778228` (taxonomia separada de erros de identidade).
+- Resultado: 240 testes completos; cobertura global de branches 90,52%.
+- Entregue: `rdkit==2026.3.4`, Hypothesis dev, modelos públicos congelados,
+  InChI opcional estrito, decisões/restauração, selection/actor, validações de
+  origem e erros com códigos/mensagens fixos sem vazamento.
+- Gate: Ruff, mypy de produção, lock, pip-audit, build, pip check e diff check
+  aprovados; review final sem Critical/Important/Minor.
 
 ## Convenções de continuidade
 
