@@ -14,9 +14,10 @@ identity projection, and never silently merges a source alias.
 **Architecture:** Frozen domain values are defined before chemistry code. RDKit
 is isolated in one bounded service. Private ORM rows and append-only database
 rules hold the identity catalogue and resolution chains. A storage-side
-read-only index implements the resolver protocol; the resolver itself remains
-pure. One service transaction materializes a result, confirms its binding, and
-writes a batch-correlated audit event atomically.
+read-only index implements separate immutable-catalog and active-alias resolver
+lookups; the resolver itself remains pure. One service transaction confirms a
+claim, performs only its report-authorized catalog action, and writes a
+batch-correlated audit event atomically.
 
 **Tech stack:** Python 3.12, RDKit 2026.3.4, Pydantic 2.x, SQLAlchemy 2.x,
 SQLite, Alembic 1.x, pytest, Hypothesis, Ruff, mypy, pip-audit, uv.
@@ -44,13 +45,22 @@ SQLite, Alembic 1.x, pytest, Hypothesis, Ruff, mypy, pip-audit, uv.
 - InChIKey is nullable evidence, never an empty string. An unavailable key
   creates a QC warning carried into the atomic audit event.
 - The pure resolver never imports storage/SQLAlchemy or writes. The persistent
-  reader is storage-side, read-only, deterministic, and filters superseded,
-  retracted, and rolled-back evidence.
+  reader is storage-side, read-only, deterministic, queries all immutable
+  catalog rows for structural evidence, and filters superseded, retracted, and
+  rolled-back evidence only from active-alias lookup.
+- NEW_COMPOUND is the explicit no-match structural outcome. It creates the
+  compound and exact state atomically; it is never inferred inside the service.
 - Root/successor uniqueness, same-alias predecessor checks, state ownership,
   and append-only behavior are database constraints/triggers as well as
   repository validation.
+- Alias has UNIQUE(import_batch_id, source_system, source_value) plus matching
+  SQL source-field checks. RETRACTED is reversible only by an explicit
+  RESTORED successor; repeated retraction is invalid.
 - Only exact-state evidence may bind automatically. See Task 6 authority
   matrix; reject a sibling state or compound-only downgrade for exact evidence.
+- IdentityService receives its clock only in the constructor. confirm_claim
+  rejects a null import batch and accepts CanonicalizationResult | None under
+  the report authority matrix.
 - No adapters, Import Manager, GUI, target, pose, score, MD, ML, fingerprint,
   broad tautomer enumeration, shell, network, pickle, eval, or scientific
   executable belongs in this phase.
@@ -94,8 +104,9 @@ ActorKind, UUID helpers, and JSON rules.
 
 **Produces:** Compound, MolecularState, Alias, IdentityResolution,
 IdentityDecision, ChemistryWarning, ChemistryWarningCode, InchiKey,
-SourceSystem, CanonicalizationResult, IdentityClaim, and safe typed errors.
-This task has no RDKit import.
+SourceSystem, CanonicalizationResult, IdentityClaim, IdentitySelection,
+SelectionMode, IdentityActor, and safe typed errors. This task has no RDKit
+import.
 
 - [ ] **Step 1: Write failing dependency and public-model tests.**
 
@@ -107,9 +118,13 @@ This task has no RDKit import.
 
   Test source_system/source_value as both-or-neither on IdentityClaim, using
   the same lower-case slug, NUL, blank, and 1,024-character rules as Alias.
-  Test confirmed/reassigned/retracted target truth tables and warning enum
-  values. Test that source_smiles remains a supplied string rather than being
-  synthesized from a state.
+  Test confirmed/reassigned/retracted/restored target/predecessor shapes.
+  Database/service transition tests in Tasks 3 and 7 prove RESTORED follows
+  only RETRACTED and repeated retraction is invalid. Test SelectionMode
+  existing_target/new_compound shapes and frozen
+  actor rules: user needs bounded nonblank actor_id; system has null actor_id;
+  rationale is null-or-bounded-nonblank. Test warning enum values and that
+  source_smiles remains supplied rather than synthesized from a state.
 
       def test_claim_rejects_one_half_of_source_alias() -> None:
           with pytest.raises(ValueError, match="together"):
@@ -145,10 +160,13 @@ This task has no RDKit import.
       confirmed  -> compound_id present, supersedes_id absent
       reassigned -> compound_id present, supersedes_id present
       retracted  -> compound_id/state_id absent, supersedes_id present
+      restored   -> compound_id present, supersedes_id present,
+                    user actor, nonblank rationale
 
   Define typed errors including InvalidStructureError,
   TautomerEnumerationLimitError, AmbiguousParentStructureError,
-  InchiUnavailableWarningCode handling, and IdentityResolutionConflictError.
+  InchiUnavailableWarningCode handling, AliasConflictError, and
+  IdentityResolutionConflictError.
   Export public values/errors without changing a Phase 1 model field.
 
 - [ ] **Step 4: Run focused tests and verify GREEN.**
@@ -163,8 +181,8 @@ This task has no RDKit import.
       git commit -m "feat: add versioned chemistry identity models"
 
 **Review gate:** Terra reviews optional-InChI semantics, durable provenance
-fields, source-pair validation, target truth tables, typed diagnostics, and
-public-model compatibility.
+fields, source-pair validation, selection/actor contracts, restoration truth
+tables, typed diagnostics, and public-model compatibility.
 
 ---
 
@@ -289,19 +307,26 @@ and diagnostic safety.
   Direct SQL must reject duplicate parent/state hashes, orphaned state/alias/
   resolution rows, empty policy/runtime fields, invalid decision/target shape,
   state/compound mismatch, update/delete/replace, and an empty InChIKey.
+  Assert UNIQUE(import_batch_id, source_system, source_value). Direct SQL must
+  reject an uppercase/invalid/over-128 source_system and NUL, blank-only, or
+  over-1,024 source_value while accepting the same source pair in a different
+  batch.
   Assert the partial unique root index permits roots for different aliases but
   rejects a second root for one alias. Assert unique supersedes_id rejects two
   successors. Assert the self-FK rejects an absent predecessor and a trigger
-  rejects a successor whose predecessor belongs to a different alias or is
-  already retracted.
+  rejects a successor whose predecessor belongs to a different alias. Assert
+  REASSIGNED/RETRACTED follow only a targeted active predecessor, RESTORED
+  follows only RETRACTED with target/user/rationale, a repeated retraction is
+  rejected, and a restored row may itself be retracted later.
 
-  Create two direct-SQL writers that attempt root insertion for one alias and
-  two that attempt successor insertion for one active row. The test may retry a
-  SQLite locked writer after the winner commits; exactly one transaction must
-  commit, the losing database operation must fail, and the stored chain must
-  have no duplicate root or fork. Typed error mapping and atomic audit behavior
-  are tested after their repository and service dependencies exist in Tasks 4
-  and 7. Retain repeated-upgrade, read-only, reopen, integrity_check,
+  Create two direct-SQL writers for the same alias unique tuple, two that
+  attempt root insertion for one alias, and two that attempt successor
+  insertion for one active row. The test may retry a SQLite locked writer after
+  the winner commits; exactly one transaction in each race must commit, the
+  losing operation must fail, and stored state must contain no duplicate alias,
+  duplicate root, or fork. Typed error mapping and atomic audit behavior are
+  tested after their repository/service dependencies exist in Tasks 4 and 7.
+  Retain repeated-upgrade, read-only, reopen, integrity_check,
   foreign_key_check, and Alembic metadata-drift checks.
 
 - [ ] **Step 2: Run focused tests and observe RED.**
@@ -315,7 +340,11 @@ and diagnostic safety.
 
   Add underscored ORM rows only. The migration creates compound,
   molecular_state, alias, then identity_resolution. Add named FKs with
-  RESTRICT, named checks, and indexes for hash/projection queries.
+  RESTRICT, uq_alias_batch_source over
+  UNIQUE(import_batch_id, source_system, source_value), and
+  ck_alias_source_system_format/ck_alias_source_value_bounds matching the
+  domain slug, length, blank, and NUL rules. Add indexes for hash/projection
+  queries.
 
   Use:
 
@@ -324,8 +353,10 @@ and diagnostic safety.
       WHERE supersedes_id IS NULL;
 
   Add a self-FK on supersedes_id and a normal unique constraint on that column.
-  A BEFORE INSERT trigger verifies predecessor same-alias/non-retracted state,
-  valid decision shape, and state ownership by selected compound. Add
+  BEFORE INSERT triggers verify same-alias/no-successor predecessor state,
+  valid CONFIRMED/REASSIGNED/RETRACTED/RESTORED transitions, repeated-retract
+  rejection, RESTORED user/rationale requirements, and state ownership by the
+  selected compound. Add
   no-update/no-delete triggers to all four identity tables. Implement downgrade
   in dependency reverse order. Do not interpolate application input into any
   migration SQL.
@@ -343,8 +374,8 @@ and diagnostic safety.
       git commit -m "feat: add concurrent-safe chemistry identity schema"
 
 **Review gate:** Terra reviews populated-Phase-1 compatibility, schema
-provenance fields, SQLite partial-index semantics, same-alias trigger rules,
-concurrent writers, and append-only constraints.
+provenance fields, alias SQL checks/unique race, SQLite partial-index semantics,
+restoration transition rules, concurrent writers, and append-only constraints.
 
 ---
 
@@ -370,12 +401,14 @@ chain conflicts.
   policy/runtime round trips, missing reads, deterministic list ordering, and
   safe corrupt-row conversion. Verify state ownership and source-batch FKs.
 
-  Test repository validation maps second-root, second-successor, and
-  cross-alias predecessor failures to IdentityResolutionConflictError rather
-  than raw SQL. Test two service-like caller-owned sessions attempting the
-  same root/successor result in one winner and one typed conflict after retry.
-  Test UoW deactivation/fail-closed semantics and atomic rollback after a
-  second flush fails.
+  Test repository validation maps duplicate batch/source alias to
+  AliasConflictError and second-root, second-successor, cross-alias predecessor,
+  and invalid restore/retract transitions to IdentityResolutionConflictError
+  rather than raw SQL. Test two
+  service-like caller-owned sessions attempting the same alias/root/successor
+  result in one winner and one typed conflict after retry. Test UoW
+  deactivation/fail-closed semantics and atomic rollback after a second flush
+  fails.
 
 - [ ] **Step 2: Run focused tests and observe RED.**
 
@@ -388,9 +421,10 @@ chain conflicts.
 
   Reuse the Phase 1 lifecycle base, safe flush path, and fresh frozen mapping.
   Repositories add/flush but never commit. Map constraints/trigger errors for
-  root/successor/cross-alias races to IdentityResolutionConflictError; map
-  locking after retry to the same safe public conflict where the state has
-  changed. Preserve other Phase 1 integrity errors.
+  alias races to AliasConflictError and root/successor/cross-alias/transition
+  races to IdentityResolutionConflictError; map locking after retry to the
+  corresponding safe public conflict where state has changed. Preserve other
+  Phase 1 integrity errors.
 
   Extend UnitOfWork._install_repositories once and include all new repositories
   in the same deactivation tuple. Do not alter Phase 1 repository semantics.
@@ -405,8 +439,8 @@ chain conflicts.
       git add src/fidelichem/storage/chemistry_repositories.py src/fidelichem/storage/session.py src/fidelichem/storage/__init__.py tests/integration/storage/test_chemistry_repositories.py tests/integration/storage/test_identity_transactions.py
       git commit -m "feat: add transactional identity repositories"
 
-**Review gate:** Terra reviews error mapping, session ownership, race handling,
-immutable mapping, and no partial transactions.
+**Review gate:** Terra reviews alias/chain error mapping, session ownership,
+restore/retract races, immutable mapping, and no partial transactions.
 
 ---
 
@@ -424,29 +458,37 @@ immutable mapping, and no partial transactions.
 
 **Produces:** IdentityIndex protocol, resolution report values, and
 PersistentIdentityIndex, which implements the protocol through SELECT-only
-database queries.
+database queries over separate immutable-catalog and active-alias surfaces.
 
 - [ ] **Step 1: Write failing model and reopened-projection tests.**
 
-  Define ResolutionKind, ResolutionReason, ResolutionCandidate, ResolutionReport,
-  and IdentityIndex. Test frozen values and candidate sort key:
-  compound ID, molecular-state ID with null last, then resolution ID.
+  Define ResolutionKind including NEW_STATE and NEW_COMPOUND, ResolutionReason,
+  EvidenceKind, CatalogAction, ResolutionCandidate, ResolutionReport, and
+  IdentityIndex. Test frozen values; immutable sorted evidence tuples;
+  catalog_action/catalog_match_dormant invariants; and candidate sort key:
+  compound ID, molecular-state ID with null last, then resolution ID null last.
 
   In a real project database, append roots, reassignment, retraction, aliases
   from completed batches, and aliases from a logically rolled-back batch. Close
-  and reopen. Assert every persistent lookup by state hash, parent hash, full
-  InChIKey, and alias returns deterministic tuples only through an active
-  resolution and excludes superseded roots, retracted decisions, and
-  rolled-back-batch evidence.
+  and reopen. Construct the index from project.engine and separately assert:
+
+  - catalog_by_state_hash, catalog_by_parent_hash, and
+    catalog_by_generated_inchikey return deterministic immutable catalog rows
+    regardless of alias supersession/retraction/rollback;
+  - active_by_alias excludes superseded roots, retracted decisions, and
+    rolled-back-batch evidence; and
+  - catalog candidates with no active alias are marked catalog_dormant=true.
 
       def test_projection_hides_withdrawn_evidence_after_reopen(project) -> None:
-          index = PersistentIdentityIndex(project.session_factory)
-          assert index.by_alias("gold", "ligand_17") == ()
-          assert index.by_state_hash(active_state.state_hash) == (active_candidate,)
+          index = PersistentIdentityIndex(project.engine)
+          assert index.active_by_alias("gold", "ligand_17") == ()
+          candidate = index.catalog_by_state_hash(dormant_state.state_hash)[0]
+          assert candidate.catalog_dormant is True
 
   Add a static test that PersistentIdentityIndex performs only SQLAlchemy
-  SELECT statements and that identity/models imports neither storage nor
-  SQLAlchemy.
+  SELECT statements, accepts the existing Phase 1 Engine | SessionFactory
+  contract, does not access an undeclared project-level session factory, and
+  that identity/models imports neither storage nor SQLAlchemy.
 
 - [ ] **Step 2: Run focused tests and observe RED.**
 
@@ -458,12 +500,13 @@ database queries.
 - [ ] **Step 3: Implement immutable values and SELECT-only projection.**
 
   Put protocol/report values in identity/models.py. Implement
-  PersistentIdentityIndex in storage/identity_index.py with a factory for
-  read-only sessions. Every lookup, including state hash, parent hash, and
-  InChIKey, must join the same active-resolution projection: NOT EXISTS for a
-  successor, decision != retracted, import_batch.status != rolled_back, and
-  non-null compound target. Explicitly ORDER BY compound ID, state ID, and
-  resolution ID in every candidate query.
+  PersistentIdentityIndex in storage/identity_index.py to accept Engine |
+  SessionFactory and open owned read-only sessions. Catalog hash/generated-
+  InChI methods query Compound/MolecularState directly across all rows and use
+  an EXISTS subquery only to mark active versus dormant. active_by_alias alone
+  uses the lifecycle projection: NOT EXISTS successor, decision != retracted,
+  import_batch.status != rolled_back, and non-null compound target. Explicitly
+  ORDER BY compound ID, state ID, and resolution ID null last in every query.
 
   The class exposes no write method and does not import IdentityResolver. It
   maps rows to fresh immutable candidates and converts corrupted stored values
@@ -479,8 +522,9 @@ database queries.
       git add src/fidelichem/identity/__init__.py src/fidelichem/identity/models.py src/fidelichem/storage/identity_index.py tests/unit/identity/test_resolution_models.py tests/integration/storage/test_persistent_identity_index.py
       git commit -m "feat: add persistent identity projection"
 
-**Review gate:** Terra reviews active-chain SQL, batch rollback filtering,
-reopen behavior, ordering, read-only guarantee, and protocol boundaries.
+**Review gate:** Terra reviews catalog-versus-alias SQL separation, dormant
+marking, batch rollback filtering, Engine/SessionFactory ownership, reopen
+behavior, ordering, read-only guarantee, and protocol boundaries.
 
 ---
 
@@ -494,23 +538,27 @@ reopen behavior, ordering, read-only guarantee, and protocol boundaries.
 
 **Consumes:** Tasks 2 and 5.
 
-**Produces:** IdentityResolver.resolve(claim, index) -> ResolutionReport. The
-persistent integration test passes PersistentIdentityIndex to the same pure
-resolver API.
+**Produces:** IdentityResolver.resolve(result: CanonicalizationResult | None,
+claim, index) -> ResolutionReport. The persistent integration test passes
+PersistentIdentityIndex to the same pure resolver API.
 
 - [ ] **Step 1: Write failing resolver tests.**
 
-  With a fake immutable index, test identical SMILES/different source IDs ->
-  EXACT_STATE; a new exact state under one parent -> NEW_STATE_FOR_COMPOUND;
-  stereo/charge/tautomer state separation; missing SMILES; alias-only and
+  With a fake immutable index, test an exact catalog state -> EXACT_STATE; a
+  new exact state under one catalog parent -> NEW_STATE; valid canonical
+  structure with no state/parent match and no conflict -> NEW_COMPOUND;
+  stereo/charge/tautomer state separation; result None; alias-only and
   ambiguous aliases; external InChIKey-only candidates; deterministic order;
-  and no weakened evidence auto-merge.
+  and no weakened evidence auto-merge. An empty index plus valid result must
+  return NEW_COMPOUND with catalog_action=create_compound.
 
   Test supplied SMILES with a different non-null external InChIKey ->
   CONFLICT. Test structural evidence and active alias evidence to different
   targets -> CONFLICT. Repeat resolver cases using the reopened persistent
-  index so an alias hidden by supersession/retraction/rollback cannot create a
-  false conflict.
+  index: an alias hidden by supersession/retraction/rollback cannot create a
+  false conflict, but an identical dormant state still returns EXACT_STATE with
+  reuse_state/catalog_match_dormant=true. A dormant parent returns NEW_STATE
+  with reuse_compound/catalog_match_dormant=true.
 
   Add a static source test: resolver.py imports neither SQLAlchemy nor storage
   and its public class has no add/save/commit/write/delete method.
@@ -524,15 +572,18 @@ resolver API.
 
 - [ ] **Step 3: Implement pure evidence precedence.**
 
-  Canonicalize valid SMILES first. If claim.inchikey and generated non-null
-  state key differ, return CONFLICT. A unique state hash is EXACT_STATE; one
-  parent hash without exact state is NEW_STATE_FOR_COMPOUND. Aggregate only
-  active persistent alias/InChI candidates, detect disagreement before an
-  outcome, and return reasons rather than a confidence score.
+  Accept a precomputed result rather than importing RDKit. If claim.inchikey
+  and generated non-null state key differ, return CONFLICT. A unique catalog
+  state hash is EXACT_STATE; one catalog parent hash without exact state is
+  NEW_STATE; zero structural matches with no conflict is NEW_COMPOUND. Query
+  generated InChI across the catalog as candidate evidence only. Aggregate
+  active alias evidence separately, detect disagreement before an outcome, and
+  return reasons/catalog action/dormant markers rather than a confidence score.
 
   The resolver only reports permitted targets. The service, not resolver,
   enforces the binding authority matrix. Do not mutate index-owned values or
-  emit audit data.
+  emit audit data. result=None is valid only when claim.smiles is None; when
+  both are present, result.source_smiles must equal claim.smiles exactly.
 
 - [ ] **Step 4: Run focused tests and verify GREEN.**
 
@@ -544,12 +595,13 @@ resolver API.
       git add src/fidelichem/identity/resolver.py tests/unit/identity/test_resolver.py tests/integration/identity/test_resolver_projection.py
       git commit -m "feat: add pure identity resolution"
 
-**Review gate:** Terra reviews conflict precedence, InChI evidence, persistent
-projection use, deterministic results, and silent-merge resistance.
+**Review gate:** Terra reviews NEW_COMPOUND completeness, catalog/dormant versus
+active-alias precedence, conflict/InChI evidence, deterministic results, and
+silent-merge resistance.
 
 ---
 
-### Task 7: Implement one atomic materialize-plus-confirm and decision chain service
+### Task 7: Implement atomic claim confirmation and reversible decision chains
 
 **Files:**
 
@@ -560,37 +612,57 @@ projection use, deterministic results, and silent-merge resistance.
 
 **Consumes:** Tasks 2, 4, 5, and 6.
 
-**Produces:** IdentityService.materialize_and_confirm, .reassign, and .retract.
-There is no separate public materialize_structure followed by confirm operation.
+**Produces:** IdentityService.confirm_claim, .reassign, .retract, and .restore.
+There is no separate public structure-materialization operation.
 
 - [ ] **Step 1: Write failing atomic, authority, and concurrency tests.**
 
-  materialize_and_confirm must add missing compound/state, Alias, root
-  IdentityResolution, and one AuditEvent in one UoW. Use injected failpoints
-  before first chemistry flush, after state flush, after alias/resolution flush,
-  and before audit flush; every failed call leaves all five categories absent.
+  Construct IdentityService with its clock, UoW/index factories, and bounded
+  failpoint callback. Its exact mutation signature is:
+
+      confirm_claim(result: CanonicalizationResult | None,
+                    claim, report, selection, actor)
+
+  A NEW_COMPOUND call must add Compound, exact state, Alias, root resolution,
+  and one AuditEvent in one UoW. Use failpoints before first chemistry flush,
+  after state flush, after alias/resolution flush, and before audit flush; every
+  failed call leaves all five categories absent. Reject import_batch_id=None
+  before UoW creation. Assert no mutation method accepts a clock parameter.
 
   Assert audit_event.import_batch_id equals alias.import_batch_id and
   new_value_json contains policy ID, RDKit/InChI version, state/parent hash,
-  report kind, warning codes, selected target, and override rationale.
+  report kind, catalog action, dormant/reuse-after-race flag, warning codes,
+  selected target, actor, and rationale.
 
   Test authority exactly:
 
-  - EXACT_STATE only binds canonical exact state and its own compound; reject
-    sibling state, other compound, or compound-only target.
-  - NEW_STATE_FOR_COMPOUND materializes then binds the canonical exact state;
-    reject a sibling/compound-only downgrade.
-  - ALIAS_ONLY/AMBIGUOUS requires explicit user actor, compound target, and
-    nonblank rationale; molecular_state_id must be null. Selecting a state
-    requires a new structural claim and resolver report.
-  - CONFLICT requires explicit override actor, target, and rationale.
+  - EXACT_STATE requires result and reuses/binds only the report's exact state;
+    reject sibling state, other compound, or compound-only target.
+  - NEW_STATE requires result, reuses only the report's parent, materializes
+    and binds the result exact state, and rejects sibling/compound-only target.
+  - NEW_COMPOUND requires result and new_compound selection, creates/binds both
+    structures, and rejects IDs or pre-existing arbitrary targets. If an
+    identical uniqueness race wins first, reload only matching hashes and
+    audit reuse_after_race without changing report kind.
+  - ALIAS_ONLY/AMBIGUOUS may pass result=None; require user actor, report-listed
+    pre-existing compound, null state, and nonblank rationale. If result is
+    supplied, prove no Compound/MolecularState row is added from it.
+  - CONFLICT requires user actor, a candidate listed in report, and rationale.
   - UNRESOLVED cannot bind.
 
-  Run two threads with a barrier attempting materialize_and_confirm for one
-  alias and two threads reassigning one active resolution. Exactly one action
-  succeeds in each race, one gets IdentityResolutionConflictError, one
-  batch-correlated audit persists per successful action, and the chain has no
-  fork.
+  Reject a selection absent from report, mismatched catalog action, arbitrary
+  compound, wrong sibling state, system override, missing/overlong actor ID or
+  rationale, and a report/result hash mismatch. Prove catalog reuse and dormant
+  reuse exactly match report fields and audit fields; never silently convert a
+  NEW_COMPOUND report into NEW_STATE or EXACT_STATE.
+
+  Prove retraction then RESTORED appends a target/user/rationale successor while
+  keeping both old rows; repeated retract fails. Run barrier races for the same
+  batch/source alias tuple and for two reassign/retract/restore successors of
+  one active resolution. Exactly one action succeeds; the alias loser gets
+  AliasConflictError and a chain loser gets IdentityResolutionConflictError.
+  One batch-correlated audit persists for the winner, no losing audit remains,
+  and the chain has no fork.
 
 - [ ] **Step 2: Run focused tests and observe RED.**
 
@@ -602,18 +674,23 @@ There is no separate public materialize_structure followed by confirm operation.
 - [ ] **Step 3: Implement one-UoW mutation and chain methods.**
 
   Inject a UoW factory, persistent index factory, clock, and bounded failpoint
-  callback. materialize_and_confirm opens one UoW, reuses or appends the parent,
-  reuses or appends the exact state, validates the report and authority matrix,
-  appends Alias/root decision, and appends one AuditEvent. It must set the
-  event import_batch_id from Alias, canonicalize audit JSON, and include
-  inchi_unavailable warning when present. A typed chemistry parent/tautomer
+  callback only into the constructor. confirm_claim rejects a null batch,
+  validates result/report/selection/actor, opens one UoW, and performs exactly
+  report.catalog_action. It then appends Alias/root decision and one AuditEvent.
+  Set event import_batch_id from Alias, canonicalize audit JSON, and include
+  inchi_unavailable, catalog dormant/reuse, and actor information. ALIAS_ONLY/
+  AMBIGUOUS never call catalog add methods. A typed chemistry parent/tautomer
   failure reaches this service before opening a write transaction.
 
-  reassign/retract query the active row, append a same-alias successor, append
-  one batch-correlated audit event, and never update Alias or a decision.
-  Convert storage uniqueness/trigger conflict to
-  IdentityResolutionConflictError after rollback. No public method may persist
-  a compound/state without the simultaneous confirmation/audit flow.
+  reassign/retract/restore query the active row, validate the transition and
+  user actor/rationale, append a same-alias successor and one batch-correlated
+  audit event, and never update Alias or an existing decision. restore accepts
+  only RETRACTED and an eligible pre-existing target; retract accepts only a
+  targeted active decision.
+  Convert duplicate-alias conflict to AliasConflictError and chain
+  uniqueness/trigger conflict to IdentityResolutionConflictError after
+  rollback. No public method may persist a compound/state without simultaneous
+  confirmation/audit flow.
 
 - [ ] **Step 4: Run focused tests and verify GREEN.**
 
@@ -625,9 +702,10 @@ There is no separate public materialize_structure followed by confirm operation.
       git add src/fidelichem/identity/service.py tests/integration/identity/test_identity_service.py tests/integration/identity/test_identity_audit.py tests/integration/identity/test_identity_concurrency.py
       git commit -m "feat: add atomic audited identity confirmation"
 
-**Review gate:** Terra reviews all-or-nothing behavior, batch audit correlation,
-authority enforcement, warning audit, concurrent writers, and chain
-reversibility.
+**Review gate:** Terra reviews exact confirm_claim signature/constructor clock,
+all-or-nothing behavior, batch/alias requirements, report-selection authority,
+NEW_COMPOUND and dormant/race reuse audit, actor rules, concurrent writers, and
+RETRACTED/RESTORED reversibility.
 
 ---
 
@@ -649,17 +727,30 @@ checkpoint for Phase 3 exploration.
 
 - [ ] **Step 1: Write the failing project workflow regression.**
 
-  Create/reopen a real project. Confirm a map-bearing one-organic salt through
-  materialize_and_confirm, reopen, construct PersistentIdentityIndex, and
-  resolve an unmapped equivalent source ID to EXACT_STATE. Confirm that an
+  Start with a truly empty real project and an active import batch. Canonicalize
+  a map-bearing one-organic salt, resolve it against
+  PersistentIdentityIndex(project.engine) to NEW_COMPOUND, select
+  new_compound, and confirm_claim atomically. Assert Compound, exact state,
+  alias, resolution, and audit all exist. Reopen the project and resolve an
+  unmapped equivalent source ID to EXACT_STATE/catalog reuse. Confirm an
   InChI-unavailable result persists nullable key plus warning inside its audit.
+
+  Create a new exact state of the same parent and prove NEW_STATE reuses the
+  parent. Confirm an alias-only claim with result=None against a report-listed
+  existing compound and prove no catalog row is added. Reject the same call
+  with import_batch_id=None and reject an arbitrary existing target not in the
+  report.
 
   Attempt a two-organic co-crystal and non-Completed tautomer status; assert
   neither writes chemistry/alias/resolution/audit rows. Submit alias plus
   conflicting valid SMILES/InChI evidence; assert no mutation. Reassign then
-  retract the initial decision, roll back its source batch through Phase 1
-  StorageService, reopen, and assert PersistentIdentityIndex hides its alias
-  evidence while raw alias/resolution/audit history remains queryable.
+  retract the initial decision, prove repeated retract fails, RESTORE it with
+  explicit target/user/rationale, then retract again. Reopen and assert active
+  alias evidence is hidden while the same structural state still resolves
+  EXACT_STATE with catalog_match_dormant=true. Roll back its source batch
+  through Phase 1 StorageService, reopen, and assert the alias remains hidden,
+  catalog reuse remains available, and raw alias/resolution/audit history is
+  still queryable.
 
 - [ ] **Step 2: Run the workflow and observe RED.**
 
@@ -678,9 +769,12 @@ checkpoint for Phase 3 exploration.
 
   ADR 0002 states exact versus parent semantics, map stripping, salt/co-crystal
   rule, enumerator limits/status, formula/mass units, policy evolution, and
-  non-goals. ADR 0005 states evidence precedence, persistent active projection,
-  authority matrix, atomic audit, races, and reversible chain rules. Update
-  README/changelog only with verified behavior.
+  non-goals. ADR 0005 states NEW_COMPOUND/NEW_STATE/EXACT_STATE completeness,
+  immutable-catalog versus active-alias lookup, dormant reuse, InChI evidence,
+  IdentitySelection/IdentityActor authority, exact confirm_claim signature,
+  constructor-only clock, alias uniqueness, atomic audit/races, and explicit
+  RETRACTED -> RESTORED chain rules. Update README/changelog only with verified
+  behavior.
 
       uv run pytest tests/integration/identity/test_phase2_workflow.py -v
       uv run pytest -v
@@ -700,8 +794,9 @@ checkpoint for Phase 3 exploration.
 **Phase review gate:** Dispatch fresh Terra xhigh review after the full gate.
 It must review spec compliance, map/hash science, policy versioning, salts/co-
 crystals, tautomer completion, optional InChI, migration/concurrency rules,
-persistent projection, authority matrix, atomic audit, security, and missing
-tests. Fix every Critical/Important finding with a fresh Luna worker and repeat
+  catalog/alias projections, NEW_COMPOUND empty-project flow, selection/actor
+  authority, restore transitions, atomic audit, security, and missing tests.
+  Fix every Critical/Important finding with a fresh Luna worker and repeat
 the relevant task review plus full phase review. Mark Phase 2 complete only
 after GO.
 
