@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-13-decision-engine`
-- Base integrada: `feat/phase-12-interaction-consensus`
-- Última fase concluída: **Fase 13 — Decision Engine**
-- Etapa ativa: nenhuma; Fase 13 concluída com sucesso.
-- Próxima ação exata: iniciar a Fase 14 — GUI Completa.
+- Branch de execução: `feat/phase-14-gui-completa`
+- Base integrada: `feat/phase-13-decision-engine`
+- Última fase concluída: **Fase 14 — GUI Completa**
+- Etapa ativa: nenhuma; Fase 14 concluída com sucesso.
+- Próxima ação exata: iniciar a Fase 15 — Export + Reproducibility.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -30,9 +30,9 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 11 — Pose Consensus | Concluída | RMSD simetria-corrigido em `ChemistryService`, matriz de RMSD 3D, clustering Butina com extração exata de medóide, cálculo de estabilidade e concordância estrutural, 556 testes passando com 88,90% de branch coverage. |
 | 12 — Interaction Consensus | Concluída | InteractionPrevalence, matriz resíduo/tipo, perfis de interação por família de poses, conservação de interações-chave em denominadores de poses reais, 559 testes passando com 89,03% de branch coverage. |
 | 13 — Decision Engine | Concluída | DecisionProfile versionado, critérios tipados (exclusion/mandatory/rank/warning), motor determinístico de justificativas e recomendações de próxima evidência, 563 testes passando com 88,93% de branch coverage. |
-| 14 — GUI completa | Pendente | Próxima fase; iniciar especificação e implementação. |
+| 14 — GUI completa | Concluída | PySide6 MainWindow com sidebar e stacked views (Project, Import, Compounds 3-pane, Docking, Interactions, Dynamics, Decision, QC, Exports), 573 testes passando com 89,04% de branch coverage. |
+| 15 — Export + reproducibility | Pendente | Próxima fase; iniciar especificação e implementação. |
 
-| 15 — Export + reproducibility | Pendente | Aguardar gate Terra da Fase 14. |
 | 16 — Packaging e release | Pendente | Aguardar gate Terra da Fase 15. |
 
 ## Último gate verificado

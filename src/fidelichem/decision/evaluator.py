@@ -136,7 +136,6 @@ def evaluate_compound_decision(
                 recommended_evidence.append(rec_opt)
             continue
 
-
         w = crit.weight if crit.weight > 0 else 1.0
         weighted_sum += w * float(val)
         total_weight += w

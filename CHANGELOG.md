@@ -59,6 +59,12 @@ All notable changes to FideliChem will be documented in this file.
 - Multi-fidelity candidate evaluation engine (`evaluate_compound_decision`, `evaluate_campaign_decisions`) computing composite scores and triage priorities (`ADVANCE`, `HOLD`, `REJECT`, `INSUFFICIENT_DATA`).
 - Transparent justification generation providing structured `why_positive`, `why_negative`, and warnings for every evaluated molecule.
 - Next Best Evidence recommendation engine directing targeted follow-up calculations (MD simulations, interaction profiling, secondary docking) for held candidates.
+- Complete PySide6 graphical desktop application (`MainWindow`) with responsive sidebar navigation and domain-isolated views.
+- Project management view (`ProjectView`) supporting creation, opening, and status inspection of Fidelichem workspaces.
+- Evidence import preview view (`ImportView`) offering adapter probing, pre-persistence summary reviews, and background execution.
+- 3-pane Compound Explorer (`CompoundsView`) featuring search, molecule table, identity inspection, and multi-tier evidence tabs (Chemistry, Docking, Poses, Interactions, MD, Provenance).
+- Specialized analytical views for Docking (`DockingView`), Intermolecular Interactions (`InteractionsView`), Molecular Dynamics (`DynamicsView`), Decision Triage (`DecisionView`), Quality Control diagnostics (`QCView`), and Data Exports (`ExportsView`).
+
 
 
 
