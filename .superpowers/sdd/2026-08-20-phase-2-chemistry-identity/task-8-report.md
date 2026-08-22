@@ -41,10 +41,11 @@ $env:QT_QPA_PLATFORM='offscreen'
 uv run pytest --cov=fidelichem.chemistry --cov=fidelichem.identity --cov=fidelichem.domain --cov=fidelichem.storage --cov-branch --cov-report=term-missing --cov-fail-under=80
 ```
 
-Result: **454 passed in 46.20s; 90.40% branch coverage** (2083 statements,
-490 branches, 75 partial branches; required threshold 80%). The identity
-service was 82% in this scoped report. The final run covers the complete
-suite, including the new workflow.
+Result: **454 passed in 46.96s; 90.63% branch coverage** (2083 statements,
+490 branches, 76 partial branches; required threshold 80%). The identity
+service was 84% in this scoped report. This is the phase-scoped result; it is
+distinct from the global package result recorded below. The run covers the
+complete suite, including the new workflow.
 
 ## Changes
 
@@ -100,9 +101,9 @@ git diff --check
 passed (only Git LF/CRLF normalization warnings for README.md and CHANGELOG.md)
 ```
 
-The final unscoped suite was also run with `uv run pytest -v`: **454 passed in
-38.55s**. The final coverage invocation above is the authoritative post-change
-full-suite result.
+The final global coverage invocation above is the authoritative full-suite
+result for the previous gate; the Fix round below records the post-fix global
+and scoped commands separately.
 
 ## Runtime provenance
 
@@ -146,3 +147,46 @@ migration/concurrency rules, catalog/alias projections, empty-project
 `NEW_COMPOUND`, selection/actor authority, restore transitions, atomic audit,
 security, and missing tests. Phase 2 must remain pending until that review is
 GO. After GO, the exact next action is Phase 3 adapter-SDK exploration.
+
+## Fix round 1/5
+
+The coordinating review required four integration clarifications. All were
+implemented in the workflow regression without changing the frozen service
+contract or rejecting valid human conflict overrides:
+
+1. A resolver-valid `IdentityClaim(import_batch_id=<existing>, source_system=None,
+   source_value=None)` is now resolved as `UNRESOLVED` and then passed to
+   `confirm_claim` with an alias-only report. The service rejects the missing
+   source pair before its UoW factory is called; this is isolated from the
+   separate null-batch guard.
+2. The lifecycle now closes/reopens after the final retract and asserts the
+   alias is hidden and the structural result is `EXACT_STATE` with
+   `catalog_match_dormant=True`. Only then does it complete/roll back the
+   source batch, closes/reopens again, and repeats the same assertions.
+3. The unauthorized conflict selection still proves no mutation. A fresh
+   batch and alias then explicitly confirms a report-listed conflict candidate
+   as a user with rationale. The test asserts target IDs and the audit payload's
+   `report_kind=conflict`, structure/state evidence, actor, and rationale.
+4. The exact global coverage command was run and recorded distinctly from the
+   phase-scoped coverage command.
+
+Fix round commands/results:
+
+```text
+uv run pytest tests/integration/identity/test_phase2_workflow.py -v
+1 passed in 1.72s
+
+uv run pytest tests/integration/identity -v
+37 passed in 8.47s
+
+$env:UV_LINK_MODE='copy'; $env:QT_QPA_PLATFORM='offscreen'
+uv run pytest --cov=fidelichem --cov-branch --cov-report=term-missing --cov-fail-under=80
+454 passed in 47.10s; TOTAL 89.90% (2437 statements, 574 branches)
+
+$env:UV_LINK_MODE='copy'; $env:QT_QPA_PLATFORM='offscreen'
+uv run pytest --cov=fidelichem.chemistry --cov=fidelichem.identity --cov=fidelichem.domain --cov=fidelichem.storage --cov-branch --cov-report=term-missing --cov-fail-under=80
+454 passed in 46.96s; TOTAL 90.63% (2083 statements, 490 branches)
+```
+
+The remaining concern is unchanged: the fresh Terra xhigh Phase 2 review is
+still required before marking Phase 2 complete.

@@ -325,9 +325,14 @@ Task 7 da Fase 2, gate final em 2026-08-22:
   tautomer incompleto sem writes, conflito com seleção inválida sem writes,
   cadeia reassign/retract/restore/retract, reopen com alias oculto e catálogo
   dormente reutilizável após rollback pelo `StorageService`.
-- Evidência: teste focado `1 passed`; suíte completa `454 passed` em 38,55 s;
-  gate de cobertura por branches `88,65%` global (2083 statements, 490
-  branches), acima do mínimo de 80%.
+- Evidência: workflow focado `1 passed` em 1,88 s; regressões de identity
+  `37 passed` em 8,47 s; comando global literal
+  `uv run pytest --cov=fidelichem --cov-branch --cov-report=term-missing
+  --cov-fail-under=80` com `454 passed` em 47,10 s e `89,90%` de coverage
+  por branches (2437 statements, 574 branches), acima do mínimo de 80%.
+  O gate scoped da Fase 2 (`chemistry`, `identity`, `domain`, `storage`) teve
+  `454 passed` em 46,96 s e `90,63%`; os números global e scoped não são
+  intercambiáveis.
 - Gate global: `uv lock --check`, Ruff, mypy (`40` arquivos), `pip-audit`
   (nenhuma vulnerabilidade conhecida; pacote local não publicado), `uv build`,
   `uv pip check` e `git diff --check` aprovados.

@@ -23,7 +23,7 @@ from fidelichem.domain.errors import (
     TautomerEnumerationLimitError,
 )
 from fidelichem.domain.models import ActorKind, ImportBatch
-from fidelichem.identity.models import ResolutionKind
+from fidelichem.identity.models import EvidenceKind, ResolutionKind
 from fidelichem.identity.resolver import IdentityResolver
 from fidelichem.identity.service import IdentityService
 from fidelichem.projects import create_project, open_project
@@ -106,6 +106,28 @@ def _candidate(report, *, state: bool):
         candidate
         for candidate in report.candidates
         if (candidate.molecular_state_id is not None) is state
+    )
+
+
+def _assert_dormant_identity(
+    engine: Engine,
+    chemistry: ChemistryService,
+    resolver: IdentityResolver,
+    state_id: str,
+) -> None:
+    index = PersistentIdentityIndex(engine)
+    assert index.active_by_alias("gold", "ligand-1") == ()
+    result = chemistry.canonicalize("CN.[Cl-]", created_at=NOW)
+    report = resolver.resolve(
+        result,
+        _claim(None, source_value="post-lifecycle", smiles="CN.[Cl-]"),
+        index,
+    )
+    assert report.kind is ResolutionKind.EXACT_STATE
+    assert report.catalog_match_dormant is True
+    assert any(
+        candidate.molecular_state_id == state_id and candidate.catalog_dormant
+        for candidate in report.candidates
     )
 
 
@@ -288,6 +310,20 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
         mode=SelectionMode.EXISTING_TARGET,
         compound_id=alias_candidate.compound_id,
     )
+    existing_batch_null_source_claim = IdentityClaim(import_batch_id=first_batch.id)
+    assert resolver.resolve(
+        None,
+        existing_batch_null_source_claim,
+        PersistentIdentityIndex(engine),
+    ).kind is ResolutionKind.UNRESOLVED
+    with pytest.raises(ValueError, match="persistence prerequisites"):
+        guarded_service.confirm_claim(
+            None,
+            existing_batch_null_source_claim,
+            resolver_only_report,
+            alias_selection,
+            _user(),
+        )
     with pytest.raises(ValueError, match="persistence prerequisites"):
         guarded_service.confirm_claim(
             None,
@@ -373,6 +409,14 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
         other_result, conflict_claim, PersistentIdentityIndex(engine)
     )
     assert conflict_report.kind is ResolutionKind.CONFLICT
+    assert any(
+        EvidenceKind.ACTIVE_ALIAS in candidate.evidence
+        for candidate in conflict_report.candidates
+    )
+    assert any(
+        EvidenceKind.CATALOG_STATE in candidate.evidence
+        for candidate in conflict_report.candidates
+    )
     before_conflict = _counts(engine)
     with pytest.raises(ValueError, match="selection"):
         _service(engine).confirm_claim(
@@ -392,6 +436,62 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
         assert uow.audit_events.list_by_batch(conflict_batch.id)[0].action == (
             "import.created"
         )
+
+    valid_conflict_batch = _batch(reopened.project.id)
+    storage.create_import_batch(valid_conflict_batch)
+    valid_conflict_claim = _claim(
+        valid_conflict_batch.id,
+        source_value="unavailable",
+        smiles=other_source,
+        inchikey=other_result.molecular_state.state_inchikey,
+    )
+    valid_conflict_report = resolver.resolve(
+        other_result,
+        valid_conflict_claim,
+        PersistentIdentityIndex(engine),
+    )
+    assert valid_conflict_report.kind is ResolutionKind.CONFLICT
+    valid_conflict_candidate = next(
+        candidate
+        for candidate in valid_conflict_report.candidates
+        if candidate.compound_id == other_compound_id
+        and candidate.molecular_state_id is not None
+    )
+    valid_conflict_resolution = _service(engine).confirm_claim(
+        other_result,
+        valid_conflict_claim,
+        valid_conflict_report,
+        IdentitySelection(
+            mode=SelectionMode.EXISTING_TARGET,
+            compound_id=valid_conflict_candidate.compound_id,
+            molecular_state_id=valid_conflict_candidate.molecular_state_id,
+        ),
+        _user(),
+    )
+    assert valid_conflict_resolution.compound_id == other_compound_id
+    assert (
+        valid_conflict_resolution.molecular_state_id
+        == valid_conflict_candidate.molecular_state_id
+    )
+    with UnitOfWork(engine) as uow:
+        valid_aliases = uow.aliases.list_by_batch(valid_conflict_batch.id)
+        assert len(valid_aliases) == 1
+        assert uow.identity_resolutions.list_by_alias(valid_aliases[0].id) == (
+            valid_conflict_resolution,
+        )
+        valid_events = uow.audit_events.list_by_batch(valid_conflict_batch.id)
+        assert len(valid_events) == 2
+        valid_payload = json.loads(valid_events[-1].new_value_json or "{}")
+        assert valid_payload["report_kind"] == ResolutionKind.CONFLICT.value
+        assert valid_payload["structure_hash"] == other_result.compound.structure_hash
+        assert valid_payload["state_hash"] == other_result.molecular_state.state_hash
+        assert valid_payload["actor_kind"] == ActorKind.USER.value
+        assert valid_payload["actor_id"] == "phase2-reviewer"
+        assert valid_payload["rationale"] == _user().rationale
+        assert valid_payload["selected_target"] == {
+            "compound_id": other_compound_id,
+            "molecular_state_id": valid_conflict_candidate.molecular_state_id,
+        }
 
     first_alias = stored_aliases[0]
     first_root = first_resolution
@@ -422,6 +522,16 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
     )
     assert final_retracted.decision is IdentityDecision.RETRACTED
 
+    _assert_dormant_identity(
+        engine, chemistry, resolver, mapped_result.molecular_state.id
+    )
+    reopened.close()
+    reopened = open_project(root)
+    assert reopened.engine is not None
+    engine = reopened.engine
+    _assert_dormant_identity(
+        engine, chemistry, resolver, mapped_result.molecular_state.id
+    )
     storage.complete_import_batch(
         first_batch.id, completed_at=NOW + timedelta(minutes=1)
     )
@@ -430,20 +540,8 @@ def test_phase2_project_reopen_workflow_is_atomic_and_reversible(
     reopened = open_project(root)
     assert reopened.engine is not None
     engine = reopened.engine
-    post_rollback_index = PersistentIdentityIndex(engine)
-    assert post_rollback_index.active_by_alias("gold", "ligand-1") == ()
-    post_result = chemistry.canonicalize("CN.[Cl-]", created_at=NOW)
-    post_report = resolver.resolve(
-        post_result,
-        _claim(None, source_value="post-rollback", smiles="CN.[Cl-]"),
-        post_rollback_index,
-    )
-    assert post_report.kind is ResolutionKind.EXACT_STATE
-    assert post_report.catalog_match_dormant is True
-    assert any(
-        candidate.molecular_state_id == mapped_result.molecular_state.id
-        and candidate.catalog_dormant
-        for candidate in post_report.candidates
+    _assert_dormant_identity(
+        engine, chemistry, resolver, mapped_result.molecular_state.id
     )
     with UnitOfWork(engine) as uow:
         assert uow.aliases.get(first_alias.id) is not None
