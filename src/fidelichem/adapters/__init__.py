@@ -9,6 +9,8 @@ from .base import (
 from .docklens import DockLensAdapter
 from .fake import FakeAdapter
 from .gold import GoldAdapter
+from .gromacs import GromacsAdapter
+from .moldynstudio import MolDynStudioAdapter
 from .registry import AdapterRegistry
 from .smiles2docking import Smiles2DockingAdapter
 from .smiles2select import Smiles2SelectAdapter
@@ -20,6 +22,8 @@ __all__ = [
     "EvidenceAdapter",
     "FakeAdapter",
     "GoldAdapter",
+    "GromacsAdapter",
+    "MolDynStudioAdapter",
     "Smiles2DockingAdapter",
     "Smiles2SelectAdapter",
     "UniversalTableAdapter",

@@ -5,11 +5,11 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-8-docklens-adapter`
-- Base integrada: `feat/phase-7-smiles2select-smiles2docking`
-- Última fase concluída: **Fase 8 — DockLens Adapter**
-- Etapa ativa: nenhuma; Fase 8 concluída com sucesso.
-- Próxima ação exata: iniciar a Fase 9 — MolDynStudio + GROMACS.
+- Branch de execução: `feat/phase-9-moldynstudio-gromacs`
+- Base integrada: `feat/phase-8-docklens-adapter`
+- Última fase concluída: **Fase 9 — MolDynStudio + GROMACS**
+- Etapa ativa: nenhuma; Fase 9 concluída com sucesso.
+- Próxima ação exata: iniciar a Fase 10 — Analytics Engine.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -25,12 +25,12 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 6 — GOLD Adapter | Concluída | GoldAdapter, gold.conf parser, bestranking.lst parser, MOL2 multi-solution parser, multi-scoring (ChemPLP, GoldScore, ChemScore, ASP, rescores), QC issues, 526 testes passando com 89,23% de branch coverage. |
 | 7 — SMILES2Select + SMILES2Docking | Concluída | Smiles2SelectAdapter (SQLite/JSON/CSV), Smiles2DockingAdapter (run.json/SDF/pH states), cross-identity pipeline integration suite (S2S -> S2D -> GOLD), 531 testes passando com 88,96% de branch coverage. |
 | 8 — DockLens | Concluída | InteractionRecord domain model, standard/granular interaction keys (target|residue|type|feature), DockLensAdapter (JSON/CSV), GOLD Pose P003 interaction association, 534 testes passando com 88,51% de branch coverage. |
-| 9 — MolDynStudio + GROMACS | Pendente | Próxima fase; iniciar especificação e implementação. |
-
-| 10 — Analytics Engine | Pendente | Aguardar gate Terra da Fase 9. |
+| 9 — MolDynStudio + GROMACS | Concluída | MDRunRecord, MDMetricRecord, GROMACS multi-series XVG parser com extração de estatísticas resumo, GromacsAdapter, MolDynStudioAdapter, 541 testes passando com 88,68% de branch coverage. |
+| 10 — Analytics Engine | Pendente | Próxima fase; iniciar especificação e implementação. |
 | 11 — Pose Consensus | Pendente | Aguardar gate Terra da Fase 10. |
 | 12 — Interaction Consensus | Pendente | Aguardar gate Terra da Fase 11. |
 | 13 — Decision Engine | Pendente | Aguardar gate Terra da Fase 12. |
+
 | 14 — GUI completa | Pendente | Aguardar gate Terra da Fase 13. |
 | 15 — Export + reproducibility | Pendente | Aguardar gate Terra da Fase 14. |
 | 16 — Packaging e release | Pendente | Aguardar gate Terra da Fase 15. |

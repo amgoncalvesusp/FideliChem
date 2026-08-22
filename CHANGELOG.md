@@ -39,6 +39,11 @@ All notable changes to FideliChem will be documented in this file.
 - InteractionRecord domain model for mechanistic interactions with standard (`target|residue|type`) and granular (`target|residue|type|feature`) interaction keys.
 - DockLens Evidence Adapter (`DockLensAdapter`) parsing mechanistic contacts, distances, angles, occupancies/frequencies, and scientific interaction profiles from JSON and CSV.
 - Mechanistic interaction linkage associating DockLens contacts directly to docking poses (e.g. GOLD Pose P003) and MD trajectories.
+- MDRunRecord and MDMetricRecord domain models for molecular dynamics simulation parameters and analytical metrics.
+- GROMACS XVG analytical curve parser (`parse_xvg`) extracting multi-series curves, legends, units, and summary statistics (min, max, mean, std).
+- GROMACS Evidence Adapter (`GromacsAdapter`) parsing RMSD, RMSF, Radius of Gyration, SASA, and energy curves.
+- MolDynStudio Evidence Adapter (`MolDynStudioAdapter`) ingesting simulation manifests, trajectory parameters, and time-series metrics.
+
 
 
 
