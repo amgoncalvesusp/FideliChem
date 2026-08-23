@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,15 +16,127 @@ from fidelichem.adapters.base import (
     scan_source_files,
     verify_import_plan,
 )
+from fidelichem.adapters.gold.parsers import parse_gold_mol2
+from fidelichem.chemistry.service import ChemistryService
 from fidelichem.domain.adapters import (
     DetectionReport,
     ImportBundle,
     ImportPlan,
     QCIssue,
+    QCSeverity,
     RawCompoundRecord,
     SourceArtifactRecord,
     ValidationReport,
 )
+
+
+def _base_structure_id(value: str) -> str:
+    """Return the source molecule id from a generated stereoisomer id."""
+    return value.split("__", 1)[0].strip()
+
+
+def _normalise_header(value: object) -> str:
+    """Normalise spreadsheet headers for tolerant identity matching."""
+    return re.sub(r"[^a-z0-9]", "", str(value).strip().lower())
+
+
+def _load_external_input_smiles(
+    source_root: Path,
+    json_files: list[str],
+) -> dict[str, str]:
+    """Load source-id/SMILES pairs referenced by a SMILES2Docking report.
+
+    The preparation workflow stores the original XLSX path in its JSON report,
+    while the generated MOL2 contains only coordinates and source ids.  Reading
+    that input table restores the chemical identity without guessing from a
+    ligand filename.
+    """
+    try:
+        import openpyxl  # type: ignore[import-untyped]
+    except ImportError:
+        return {}
+
+    pairs: dict[str, str] = {}
+    for json_rel in json_files:
+        report_path = source_root / json_rel
+        try:
+            data = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        input_value = data.get("input_file")
+        if not isinstance(input_value, str) or not input_value.strip():
+            continue
+        input_path = Path(input_value)
+        if not input_path.is_absolute():
+            input_path = source_root / input_path
+        if input_path.suffix.lower() not in (".xlsx", ".xlsm"):
+            continue
+        if not input_path.exists():
+            continue
+        try:
+            workbook = openpyxl.load_workbook(
+                filename=input_path,
+                read_only=True,
+                data_only=True,
+            )
+        except (OSError, ValueError, TypeError):
+            continue
+        try:
+            sheet = workbook[workbook.sheetnames[0]]
+            rows = sheet.iter_rows(values_only=True)
+            header_row = next(rows, None)
+            if header_row is None:
+                continue
+            headers = [_normalise_header(value) for value in header_row]
+            id_index = next(
+                (
+                    index
+                    for index, header in enumerate(headers)
+                    if header
+                    in {
+                        "accesscode",
+                        "moleculeid",
+                        "compoundid",
+                        "ligandid",
+                        "id",
+                    }
+                ),
+                None,
+            )
+            smiles_index = next(
+                (
+                    index
+                    for index, header in enumerate(headers)
+                    if header
+                    in {"smiles", "canonicalsmiles", "isomericsmiles"}
+                ),
+                None,
+            )
+            if id_index is None or smiles_index is None:
+                continue
+            for row in rows:
+                if id_index >= len(row) or smiles_index >= len(row):
+                    continue
+                source_id = row[id_index]
+                smiles = row[smiles_index]
+                if source_id is None or smiles is None:
+                    continue
+                clean_id = str(source_id).strip()
+                clean_smiles = str(smiles).strip()
+                if clean_id and clean_smiles:
+                    pairs.setdefault(clean_id, clean_smiles)
+        except (OSError, ValueError, TypeError):
+            continue
+        finally:
+            workbook.close()
+    return pairs
+
+
+def _derive_mol2_smiles(raw_block: str) -> str | None:
+    """Derive a validated SMILES from a MOL2 block when no source table exists."""
+    return ChemistryService.derive_smiles_from_mol2_block(raw_block)
 
 
 class Smiles2DockingAdapter:
@@ -48,6 +161,7 @@ class Smiles2DockingAdapter:
             "*smiles2docking*.json",
             "run.json",
             "manifest.json",
+            "run_report*.json",
             "prepared_*.sdf",
             "prepared_*.mol2",
             "*.sdf",
@@ -58,9 +172,10 @@ class Smiles2DockingAdapter:
         json_descriptors = [
             f
             for f in match_names
-            if f.endswith(".json")
+            if f.lower().endswith(".json")
             and (
                 "smiles2docking" in f.lower()
+                or "run_report" in f.lower()
                 or f.lower() in ("run.json", "manifest.json")
             )
         ]
@@ -134,8 +249,12 @@ class Smiles2DockingAdapter:
             size = stat.st_size if stat else 0
             file_type = (
                 "json"
-                if rel_path.endswith(".json")
-                else ("sdf" if rel_path.endswith(".sdf") else "mol2")
+                if rel_path.lower().endswith(".json")
+                else (
+                    "sdf"
+                    if rel_path.lower().endswith(".sdf")
+                    else "mol2"
+                )
             )
 
             source_artifacts.append(
@@ -151,9 +270,10 @@ class Smiles2DockingAdapter:
         json_files = [
             f
             for f in plan.source_files
-            if f.endswith(".json")
+            if f.lower().endswith(".json")
             and (
                 "smiles2docking" in f.lower()
+                or "run_report" in f.lower()
                 or f.lower() in ("run.json", "manifest.json")
             )
         ]
@@ -253,6 +373,72 @@ class Smiles2DockingAdapter:
                         )
                     )
 
+        identity_smiles = _load_external_input_smiles(source_root, json_files)
+        mol2_files = [
+            rel_path
+            for rel_path in plan.source_files
+            if rel_path.lower().endswith(".mol2")
+        ]
+        for mol2_rel in mol2_files:
+            mol2_path = source_root / mol2_rel
+            try:
+                structures = parse_gold_mol2(mol2_path)
+            except (OSError, UnicodeError, ValueError, TypeError) as exc:
+                qc_messages.append(
+                    QCIssue(
+                        code="QC_MOL2_READ_FAILED",
+                        message=f"Could not read MOL2 source: {exc}",
+                        severity=QCSeverity.ERROR,
+                        source_file=mol2_rel,
+                    )
+                )
+                continue
+
+            for structure in structures:
+                compound_id = str(structure.get("ligand_name", "")).strip()
+                if not compound_id or compound_id in seen_cmpd_ids:
+                    continue
+                base_id = _base_structure_id(compound_id)
+                source_smiles = structure.get("smiles") or identity_smiles.get(
+                    base_id
+                )
+                if not source_smiles:
+                    source_smiles = _derive_mol2_smiles(
+                        str(structure.get("raw_block", ""))
+                    )
+                if not source_smiles:
+                    qc_messages.append(
+                        QCIssue(
+                            code="QC_MOL2_IDENTITY_MISSING",
+                            message=(
+                                "MOL2 structure has no embedded or referenced "
+                                "SMILES identity"
+                            ),
+                            severity=QCSeverity.ERROR,
+                            source_file=mol2_rel,
+                            entity_reference=compound_id,
+                        )
+                    )
+
+                seen_cmpd_ids.add(compound_id)
+                compounds.append(
+                    RawCompoundRecord(
+                        source_system="smiles2docking",
+                        source_value=compound_id,
+                        source_smiles=(
+                            str(source_smiles) if source_smiles else None
+                        ),
+                        source_artifact_path=mol2_rel,
+                        metadata={
+                            "source_adapter": self.adapter_id,
+                            "structure_format": "mol2",
+                            "atom_count": structure.get("atom_count", 0),
+                            "bond_count": structure.get("bond_count", 0),
+                            "base_structure_id": base_id,
+                        },
+                    )
+                )
+
         return ImportBundle(
             plan=plan,
             targets=(),
@@ -277,6 +463,12 @@ class Smiles2DockingAdapter:
             errors.append(
                 "No prepared ligands were parsed from SMILES2Docking evidence"
             )
+
+        for qc in bundle.qc_messages:
+            if qc.severity == QCSeverity.ERROR:
+                errors.append(f"[{qc.code}] {qc.message}")
+            elif qc.severity == QCSeverity.WARNING:
+                warnings.append(f"[{qc.code}] {qc.message}")
 
         return ValidationReport(
             is_valid=len(errors) == 0,

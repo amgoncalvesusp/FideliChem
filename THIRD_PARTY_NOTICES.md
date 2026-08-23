@@ -20,6 +20,8 @@ Those components keep their own licenses; this file does not relicense them.
 | Alembic | 1.x | MIT | [Alembic license](https://github.com/sqlalchemy/alembic/blob/main/LICENSE) |
 | Mako (transitive) | 1.x | MIT | [Mako license](https://github.com/sqlalchemy/mako/blob/master/LICENSE) |
 | greenlet (transitive) | 3.x | MIT and PSF-2.0 | [greenlet license](https://github.com/python-greenlet/greenlet/blob/main/LICENSE) |
+| openpyxl | 3.x | MIT | [openpyxl license](https://github.com/ericgazoni/openpyxl/blob/master/LICENCE.rst) |
+| et-xmlfile (transitive) | 2.x | MIT | [et-xmlfile license](https://github.com/felixlohmeier/et-xmlfile/blob/master/LICENSE.txt) |
 | xlrd | 2.x | BSD | [xlrd license](https://github.com/python-excel/xlrd/blob/master/LICENSE) |
 | typing-extensions (transitive) | 4.x | PSF-2.0 | [typing-extensions license](https://github.com/python/typing_extensions/blob/main/LICENSE) |
 

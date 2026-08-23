@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
@@ -48,7 +49,13 @@ def test_export_to_xlsx(tmp_path: Path) -> None:
     assert res_xlsx.stat().st_size > 0
 
 
-def test_xlsx_fallback_escapes_xml_content(tmp_path: Path) -> None:
+def test_xlsx_fallback_escapes_xml_content(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # The normal runtime includes openpyxl for reading XLSX.  Exercise the
+    # dependency-free SpreadsheetML fallback explicitly as a separate path.
+    monkeypatch.setitem(sys.modules, "openpyxl", None)
     xlsx_path = tmp_path / "compounds.xlsx"
     export_to_xlsx(
         [{"compound_id": "C&<1", "note": "<unsafe>&"}],

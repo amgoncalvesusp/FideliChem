@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import Engine, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -42,9 +42,18 @@ from .session import SessionFactory
 class PersistentIdentityIndex:
     """SELECT-only implementation of the identity evidence index."""
 
-    def __init__(self, source: Engine | SessionFactory):
+    def __init__(self, source: Engine | SessionFactory | Session):
+        self._session: Session | None
+        self._session_factory: SessionFactory | None
+        self._session = source if isinstance(source, Session) else None
         self._session_factory = (
-            _session_factory_for(source) if isinstance(source, Engine) else source
+            None
+            if self._session is not None
+            else (
+                _session_factory_for(source)
+                if isinstance(source, Engine)
+                else cast(SessionFactory, source)
+            )
         )
 
     def _read[ResultT](self, operation: Callable[[Session], ResultT]) -> ResultT:
@@ -64,6 +73,10 @@ class PersistentIdentityIndex:
     def _with_session[ResultT](
         self, operation: Callable[[Session], ResultT]
     ) -> ResultT:
+        if self._session is not None:
+            return operation(self._session)
+        if self._session_factory is None:  # pragma: no cover - constructor guard
+            raise RepositoryError("identity index session is unavailable")
         with self._session_factory() as session:
             return operation(session)
 

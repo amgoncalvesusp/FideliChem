@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
@@ -27,6 +29,8 @@ from .views.import_view import ImportView
 from .views.interactions_view import InteractionsView
 from .views.project_view import ProjectView
 from .views.qc_view import QCView
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -95,6 +99,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget(central_container)
         self.project_view = ProjectView(self.stack)
         self.import_view = ImportView(self.stack)
+        self.import_view.set_workspace_ready(False)
         self.compounds_view = CompoundsView(self.stack)
         self.docking_view = DockingView(self.stack)
         self.interactions_view = InteractionsView(self.stack)
@@ -155,6 +160,7 @@ class MainWindow(QMainWindow):
         self.project_view.set_active_project(state.name, str(state.root))
         self.workspace_badge.setText(f"{state.name}\n{state.root}")
         self.exports_view.set_workspace_ready(True)
+        self.import_view.set_workspace_ready(True)
         self.exports_view.set_default_destination(str(state.root / "exports"))
         self.status_bar.showMessage(f"Workspace ready · {state.name}")
 
@@ -172,6 +178,7 @@ class MainWindow(QMainWindow):
         self.project_view.set_active_project(state.name, str(state.root))
         self.workspace_badge.setText(f"{state.name}\n{state.root}")
         self.exports_view.set_workspace_ready(True)
+        self.import_view.set_workspace_ready(True)
         self.exports_view.set_default_destination(str(state.root / "exports"))
         self.status_bar.showMessage(f"Workspace opened · {state.name}")
 
@@ -188,7 +195,7 @@ class MainWindow(QMainWindow):
             )
         except Exception as exc:  # noqa: BLE001
             self.import_view.set_probe_preview(
-                "Probe failed. Check the source path and try again."
+                f"Probe failed: {self._error_detail(exc)}"
             )
             self._show_controller_error("Probe could not be completed", exc)
 
@@ -205,7 +212,7 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("Import completed · evidence is auditable")
         except Exception as exc:  # noqa: BLE001
             self.import_view.set_probe_preview(
-                "Import failed. Review the source and QC diagnostics."
+                f"Import failed: {self._error_detail(exc)}"
             )
             self._show_controller_error("Import could not be completed", exc)
 
@@ -260,12 +267,19 @@ class MainWindow(QMainWindow):
         return line
 
     def _show_controller_error(self, context: str, error: Exception) -> None:
-        """Keep user-facing errors actionable without exposing internals."""
+        """Log the diagnostic and expose a concise actionable detail in the UI."""
 
-        del error
+        logger.exception("%s: %s", context, error)
+        detail = self._error_detail(error)
         self.status_bar.showMessage(
-            f"{context} · check the selected path, workspace, and permissions"
+            f"{context}: {detail}"
         )
+
+    @staticmethod
+    def _error_detail(error: Exception) -> str:
+        """Return a bounded, single-line error suitable for the status area."""
+        detail = " ".join(str(error).split())
+        return detail[:240] if detail else "check the selected path and workspace"
 
     def closeEvent(self, event: object) -> None:  # noqa: N802
         self.controller.close()

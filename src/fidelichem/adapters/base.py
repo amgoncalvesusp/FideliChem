@@ -84,11 +84,15 @@ def compute_source_artifacts(
 ) -> tuple[SourceArtifactRecord, ...]:
     """Compute cryptographic hashes and file metadata for relative source paths."""
     root = source_root.resolve()
+    # Plans use paths relative to a directory even when the user selected one
+    # individual file.  Keeping that invariant lets every adapter parse a
+    # selected CSV/XLSX/MOL2 without special-casing ``file / filename``.
+    base_root = root.parent if root.is_file() else root
     artifacts: list[SourceArtifactRecord] = []
 
     for item in relative_paths:
         rel_posix = Path(item).as_posix()
-        full_path = root / rel_posix
+        full_path = base_root / rel_posix
         if not full_path.is_file():
             raise ValueError(f"Source file does not exist: {full_path}")
 
@@ -145,6 +149,12 @@ def build_import_plan(
 ) -> ImportPlan:
     """Helper to assemble a validated, content-hashed ImportPlan."""
     opt_map = dict(options or {})
+    declared_root = Path(source_root)
+    plan_root = (
+        declared_root.parent
+        if declared_root.exists() and declared_root.is_file()
+        else declared_root
+    )
     source_files = tuple(a.relative_path for a in artifacts)
     file_hashes = tuple((a.relative_path, a.sha256) for a in artifacts)
     ts = created_at or datetime.now(UTC)
@@ -152,7 +162,7 @@ def build_import_plan(
     plan_hash = compute_plan_hash(
         adapter_id=adapter_id,
         adapter_version=adapter_version,
-        source_root=source_root,
+        source_root=str(plan_root),
         source_files=source_files,
         file_hashes=file_hashes,
         options=opt_map,
@@ -161,7 +171,7 @@ def build_import_plan(
     return ImportPlan(
         adapter_id=adapter_id,
         adapter_version=adapter_version,
-        source_root=source_root,
+        source_root=str(plan_root),
         source_files=source_files,
         file_hashes=file_hashes,
         options=opt_map,

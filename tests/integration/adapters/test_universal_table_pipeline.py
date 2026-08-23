@@ -234,3 +234,42 @@ def test_universal_table_preset_workflow(table_pipeline_env, tmp_path: Path) -> 
     result = manager.execute_import(project_id, plan)
     assert result.batch.status == ImportStatus.COMPLETED
     assert len(result.confirmed_resolutions) == 1
+
+
+def test_universal_table_import_skips_chemistry_policy_failures_with_qc(
+    table_pipeline_env,
+) -> None:
+    manager, project_id, data_dir, uow_factory, _ = table_pipeline_env
+    source = data_dir / "mixed_identity.csv"
+    source.write_text(
+        "access_code,smiles\nGOOD,CCO\nAMBIGUOUS,CCO.CN\n",
+        encoding="utf-8",
+    )
+    schema = TableMappingSchema(
+        identity=IdentityColumnMapping(
+            molecule_id_column="access_code",
+            smiles_column="smiles",
+            source_system_default="pipeline",
+        )
+    )
+    plan = manager.plan(
+        "fidelichem.universal_table",
+        source,
+        options={"schema": schema.model_dump(mode="json")},
+    )
+
+    result = manager.execute_import(project_id, plan)
+
+    assert result.batch.status is ImportStatus.COMPLETED
+    assert len(result.confirmed_resolutions) == 1
+    assert any(
+        "Skipped 1 compounds" in warning
+        for warning in result.validation.warnings
+    )
+    assert any(
+        issue.code == "QC_CHEMISTRY_PARENT_MULTIORGANIC"
+        for issue in result.validation.qc_issues
+    )
+    with uow_factory() as uow:
+        aliases = uow.aliases.list_by_batch(result.batch.id)
+        assert {alias.source_value for alias in aliases} == {"GOOD"}

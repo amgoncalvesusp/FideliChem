@@ -18,6 +18,8 @@ def detect_format(file_path: Path) -> str:
         return "csv"
     if suffix == ".tsv":
         return "tsv"
+    if suffix == ".txt":
+        return "txt"
     if suffix == ".json":
         return "json"
     if suffix in (".jsonl", ".ndjson"):
@@ -84,7 +86,7 @@ def preview_table(
     """Return headers and preview rows for UI and mapping setup."""
     fmt = detect_format(file_path)
 
-    if fmt in ("csv", "tsv"):
+    if fmt in ("csv", "tsv", "txt"):
         delim = delimiter or detect_delimiter(file_path)
         with file_path.open(
             mode="r", encoding="utf-8", errors="replace", newline=""
@@ -175,6 +177,20 @@ def _clean_cell(val: Any) -> Any:
     return val
 
 
+def _normalise_headers(values: list[Any]) -> list[str]:
+    """Create stable, non-empty, unique column names from a header row."""
+    headers: list[str] = []
+    counts: dict[str, int] = {}
+    for index, value in enumerate(values, start=1):
+        name = str(value).strip() if value is not None else ""
+        base = name or f"col_{index}"
+        counts[base] = counts.get(base, 0) + 1
+        headers.append(
+            base if counts[base] == 1 else f"{base}_{counts[base]}"
+        )
+    return headers
+
+
 def read_table_records(
     file_path: Path,
     schema: TableMappingSchema,
@@ -182,7 +198,7 @@ def read_table_records(
     """Stream tabular rows as normalized dictionaries of column -> value."""
     fmt = detect_format(file_path)
 
-    if fmt in ("csv", "tsv"):
+    if fmt in ("csv", "tsv", "txt"):
         delim = schema.delimiter or detect_delimiter(file_path)
         with file_path.open(
             mode="r", encoding="utf-8", errors="replace", newline=""
@@ -202,7 +218,7 @@ def read_table_records(
 
                 if not headers:
                     if schema.has_header:
-                        headers = [cell.strip() for cell in row]
+                        headers = _normalise_headers(row)
                         continue
                     headers = [f"col_{i + 1}" for i in range(len(row))]
 
@@ -263,7 +279,7 @@ def read_table_records(
                     continue
                 if not sheet_headers:
                     if schema.has_header:
-                        sheet_headers = [str(value).strip() for value in row]
+                        sheet_headers = _normalise_headers(row)
                         continue
                     sheet_headers = [f"col_{i + 1}" for i in range(len(row))]
                 yield {
@@ -301,7 +317,7 @@ def read_table_records(
                     continue
                 if not xls_headers:
                     if schema.has_header:
-                        xls_headers = [str(value).strip() for value in row]
+                        xls_headers = _normalise_headers(row)
                         continue
                     xls_headers = [f"col_{i + 1}" for i in range(len(row))]
                 yield {

@@ -93,10 +93,23 @@ class WorkspaceController:
     ) -> ImportResult:
         paths = self._require_workspace()
         source_path = self._require_source(source)
+        resolved_adapter_id = self._resolve_adapter_id(adapter_id, source_path)
         manager = self._import_manager(paths)
-        plan = manager.plan(adapter_id, source_path, options)
+        plan = manager.plan(resolved_adapter_id, source_path, options)
         actor = IdentityActor(kind=ActorKind.USER, actor_id="gui")
         return manager.execute_import(paths.project_id or "", plan, actor=actor)
+
+    def _resolve_adapter_id(self, adapter_id: str, source: Path) -> str:
+        """Resolve the UI's ``auto`` choice to one concrete adapter."""
+        if adapter_id != "auto":
+            return adapter_id
+        reports = self._registry.probe_all(source)
+        supported = tuple(report for report in reports if report.confidence > 0)
+        if not supported:
+            raise ValueError(
+                "No compatible evidence adapter detected for the selected source"
+            )
+        return supported[0].suggested_adapter
 
     def export_project(
         self,

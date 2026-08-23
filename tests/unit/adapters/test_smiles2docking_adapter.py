@@ -39,6 +39,29 @@ def test_smiles2docking_probe(tmp_path: Path) -> None:
     assert report.suggested_adapter == "fidelichem.smiles2docking"
 
 
+def test_smiles2docking_parses_prepared_mol2_with_embedded_smiles(
+    tmp_path: Path,
+) -> None:
+    adapter = Smiles2DockingAdapter()
+    (tmp_path / "prepared_ligands.mol2").write_text(
+        "@<TRIPOS>MOLECULE\n"
+        "EOS001\n"
+        " 1 0 0 0 0\n"
+        "SMALL\nNO_CHARGES\n\n"
+        "> <SMILES>\nCCO\n\n"
+        "@<TRIPOS>ATOM\n"
+        " 1 C1 0.0 0.0 0.0 C.3 1 LIG 0.0\n",
+        encoding="utf-8",
+    )
+
+    report = adapter.probe(tmp_path)
+    assert report.confidence >= 0.75
+    bundle = adapter.parse(adapter.plan(tmp_path))
+    assert len(bundle.compounds) == 1
+    assert bundle.compounds[0].source_value == "EOS001"
+    assert bundle.compounds[0].source_smiles == "CCO"
+
+
 def test_smiles2docking_parse_run(tmp_path: Path) -> None:
     adapter = Smiles2DockingAdapter()
 

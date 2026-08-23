@@ -18,6 +18,7 @@ from fidelichem.adapters.base import (
 )
 from fidelichem.adapters.table.readers import (
     detect_format,
+    preview_table,
     read_table_records,
 )
 from fidelichem.domain.adapters import (
@@ -44,6 +45,92 @@ def _safe_slug(value: str) -> str:
     return slug or "table_import"
 
 
+def _normalise_column_name(value: str) -> str:
+    """Compare column names without relying on punctuation or casing."""
+    return re.sub(r"[^a-z0-9]", "", value.strip().lower())
+
+
+def _first_matching_column(
+    headers: tuple[str, ...], candidates: tuple[str, ...]
+) -> str | None:
+    wanted = {_normalise_column_name(candidate) for candidate in candidates}
+    for header in headers:
+        if _normalise_column_name(header) in wanted:
+            return header
+    return None
+
+
+def _infer_identity_schema(
+    file_path: Path,
+    schema: TableMappingSchema,
+) -> TableMappingSchema:
+    """Infer common identity columns while preserving explicit user mappings."""
+    try:
+        headers, _ = preview_table(
+            file_path,
+            max_rows=1,
+            sheet_name=schema.sheet_name,
+        )
+    except (OSError, ValueError, TypeError):
+        return schema
+    if not headers:
+        return schema
+
+    identity = schema.identity
+    updates: dict[str, Any] = {}
+    if identity.molecule_id_column is None:
+        updates["molecule_id_column"] = _first_matching_column(
+            headers,
+            (
+                "access_code",
+                "molecule_id",
+                "compound_id",
+                "ligand_id",
+                "compound",
+                "id",
+            ),
+        )
+    if identity.molecule_name_column is None:
+        updates["molecule_name_column"] = _first_matching_column(
+            headers,
+            ("molecule_name", "ligand_name", "compound_name", "name"),
+        )
+    if identity.smiles_column is None:
+        updates["smiles_column"] = _first_matching_column(
+            headers,
+            ("smiles", "canonical_smiles", "isomeric_smiles", "structure"),
+        )
+    if identity.inchikey_column is None:
+        updates["inchikey_column"] = _first_matching_column(
+            headers,
+            ("inchikey", "inchi_key", "inchi"),
+        )
+    if identity.target_name_column is None:
+        updates["target_name_column"] = _first_matching_column(
+            headers, ("target", "target_name", "protein", "receptor")
+        )
+    if identity.run_name_column is None:
+        updates["run_name_column"] = _first_matching_column(
+            headers, ("run", "run_name", "campaign")
+        )
+    if identity.pose_id_column is None:
+        updates["pose_id_column"] = _first_matching_column(
+            headers, ("pose", "pose_id", "pose_name")
+        )
+    if identity.rank_column is None:
+        updates["rank_column"] = _first_matching_column(
+            headers, ("rank", "pose_rank")
+        )
+    if identity.preparation_ph_column is None:
+        updates["preparation_ph_column"] = _first_matching_column(
+            headers, ("ph", "preparation_ph", "p_h")
+        )
+
+    return schema.model_copy(
+        update={"identity": identity.model_copy(update=updates)}
+    )
+
+
 class UniversalTableAdapter:
     """Configurable evidence adapter for arbitrary tabular molecular/docking files."""
 
@@ -68,11 +155,26 @@ class UniversalTableAdapter:
             "*.parquet",
             "*.xlsx",
             "*.xls",
+            "*.txt",
             "*.json",
             "*.jsonl",
             "*.ndjson",
         )
         matches = scan_source_files(source, patterns=patterns)
+        structure_matches = scan_source_files(
+            source, patterns=("*.mol2", "*.sdf")
+        )
+        table_suffixes = {".csv", ".tsv", ".txt", ".parquet", ".xlsx", ".xls"}
+        if source.is_dir() and structure_matches and not any(
+            Path(match).suffix.lower() in table_suffixes for match in matches
+        ):
+            return DetectionReport(
+                confidence=0.0,
+                detected_format="unknown",
+                candidate_files=(),
+                requires_user_mapping=False,
+                suggested_adapter=self.adapter_id,
+            )
         table_files = [
             f.as_posix()
             for f in matches
@@ -169,10 +271,11 @@ class UniversalTableAdapter:
                 )
                 continue
 
-            ident = schema.identity
+            file_schema = _infer_identity_schema(file_path, schema)
+            ident = file_schema.identity
 
             for row_idx, record in enumerate(
-                read_table_records(file_path, schema), start=1
+                read_table_records(file_path, file_schema), start=1
             ):
                 # 1. Target resolution
                 target_name = (
@@ -276,7 +379,7 @@ class UniversalTableAdapter:
                 )
 
                 # 5. Score observations (strictly preserves missing/None data)
-                for score_mapping in schema.scores:
+                for score_mapping in file_schema.scores:
                     raw_val = record.get(score_mapping.column_name)
                     if raw_val is not None:
                         try:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from fidelichem.adapters.table.adapter import UniversalTableAdapter
 from fidelichem.domain.table_importer import (
     IdentityColumnMapping,
@@ -29,6 +31,42 @@ def test_table_adapter_probe(tmp_path: Path) -> None:
     assert report.suggested_adapter == "fidelichem.universal_table"
     assert "screen.csv" in report.candidate_files
     assert report.requires_user_mapping is True
+
+
+def test_table_adapter_supports_txt_and_infers_identity_columns(tmp_path: Path) -> None:
+    adapter = UniversalTableAdapter()
+    text_file = tmp_path / "screen.txt"
+    text_file.write_text(
+        "access_code\tsmiles\nEOS001\tCCO\nEOS002\tCCN\n",
+        encoding="utf-8",
+    )
+
+    report = adapter.probe(text_file)
+    assert report.confidence >= 0.8
+    assert report.detected_format == "tabular"
+
+    bundle = adapter.parse(adapter.plan(text_file))
+    assert [compound.source_value for compound in bundle.compounds] == [
+        "EOS001",
+        "EOS002",
+    ]
+    assert [compound.source_smiles for compound in bundle.compounds] == ["CCO", "CCN"]
+
+
+def test_table_adapter_reads_xlsx_with_blank_trailing_headers(tmp_path: Path) -> None:
+    openpyxl = pytest.importorskip("openpyxl")
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.append(["access_code", "smiles", None, None])
+    worksheet.append(["EOS001", "CCO", "unused", 1.0])
+    source = tmp_path / "screen.xlsx"
+    workbook.save(source)
+    workbook.close()
+
+    bundle = UniversalTableAdapter().parse(UniversalTableAdapter().plan(source))
+    assert len(bundle.compounds) == 1
+    assert bundle.compounds[0].source_value == "EOS001"
+    assert bundle.compounds[0].source_smiles == "CCO"
 
 
 def test_table_adapter_parse_csv_with_schema(tmp_path: Path) -> None:

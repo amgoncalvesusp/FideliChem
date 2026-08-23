@@ -5,11 +5,12 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `feat/phase-16-packaging-release`
+- Branch de execução: `codex/fix-imports-v0.1.1`
 - Base integrada: `feat/phase-15-export-reproducibility`
 - Última fase concluída: **Fase 16 — Packaging e Release (Todas as Fases 0–16 Concluídas)**
-- Etapa ativa: nenhuma; Todas as 17 fases (Fase 0 a Fase 16) do plano mestre de produção foram integralmente concluídas.
-- Próxima ação exata: consolidação e entrega final do software FideliChem.
+- Etapa ativa: correção pós-release de importação (XLSX/TXT/MOL2 e roteamento GUI).
+- Próxima ação exata: publicar a revisão corrigida que substitui o conteúdo do
+  release `v0.1.1`.
 - Bloqueios: nenhum.
 
 ## Progresso por fase
@@ -20,10 +21,10 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 1 — Domain model + storage | Concluída | 189 testes, 89,24% de branch coverage; review integral final GO em `c16b73c`. |
 | 2 — Chemistry + Identity Resolver | Concluída | Tasks 1–8, gate global e review Terra integral aprovados; zero Critical/Important/Minor. |
 | 3 — Adapter SDK + Import Manager | Concluída | Tasks 1–8 concluídas; EvidenceAdapter Protocol, AdapterRegistry, ImportManager, DuplicateImportDetector, FakeAdapter e suite E2E aprovados. |
-| 4 — Universal Table Importer | Concluída | UniversalTableAdapter, PresetManager, TableMappingSchema, robust readers (CSV/TSV/JSON/JSONL), 508 testes passando com 89,55% de branch coverage. |
+| 4 — Universal Table Importer | Concluída | UniversalTableAdapter, PresetManager, TableMappingSchema, robust readers (CSV/TSV/TXT/JSON/JSONL/XLSX), automatic identity-column inference, 508 testes passando com 89,55% de branch coverage. |
 | 5 — Score Registry + normalization | Concluída | ScoreDefinition, ScoreRegistry com catálogo de docking functions, ScoreNormalizer (percentis orientados melhor=1.0, robust Z, missing preservation), 519 testes passando com 89,75% de branch coverage. |
 | 6 — GOLD Adapter | Concluída | GoldAdapter, gold.conf parser, bestranking.lst parser, MOL2 multi-solution parser, multi-scoring (ChemPLP, GoldScore, ChemScore, ASP, rescores), QC issues, 526 testes passando com 89,23% de branch coverage. |
-| 7 — SMILES2Select + SMILES2Docking | Concluída | Smiles2SelectAdapter (SQLite/JSON/CSV), Smiles2DockingAdapter (run.json/SDF/pH states), cross-identity pipeline integration suite (S2S -> S2D -> GOLD), 531 testes passando com 88,96% de branch coverage. |
+| 7 — SMILES2Select + SMILES2Docking | Concluída | Smiles2SelectAdapter (SQLite/JSON/CSV), Smiles2DockingAdapter (run.json/SDF/MOL2/pH states with source-XLSX identity recovery), cross-identity pipeline integration suite (S2S -> S2D -> GOLD), 531 testes passando com 88,96% de branch coverage. |
 | 8 — DockLens | Concluída | InteractionRecord domain model, standard/granular interaction keys (target|residue|type|feature), DockLensAdapter (JSON/CSV), GOLD Pose P003 interaction association, 534 testes passando com 88,51% de branch coverage. |
 | 9 — MolDynStudio + GROMACS | Concluída | MDRunRecord, MDMetricRecord, GROMACS multi-series XVG parser com extração de estatísticas resumo, GromacsAdapter, MolDynStudioAdapter, 541 testes passando com 88,68% de branch coverage. |
 | 10 — Analytics Engine | Concluída | Score consensus (mediana/média ponderada/dispersão), correlações Spearman/Kendall e top-k overlap, MoleculeAgreement (HIGH/MOD/LOW), Pareto multi-objetivo não-dominado, 549 testes passando com 88,97% de branch coverage. |
@@ -33,6 +34,24 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 | 14 — GUI completa | Concluída | PySide6 MainWindow com sidebar e stacked views (Project, Import, Compounds 3-pane, Docking, Interactions, Dynamics, Decision, QC, Exports), 573 testes passando com 89,04% de branch coverage. |
 | 15 — Export + reproducibility | Concluída | ExportEngine, exportadores tabulares multi-formato (CSV, JSON, XLSX, Parquet), Methods Report em Markdown e manifestos criptográficos SHA-256 (`manifest.json`), 577 testes passando com 88,70% de branch coverage. |
 | 16 — Packaging e release | Concluída | Release builder `scripts/build_release.py`, CLI commands (`gui`, `probe`, `export`), builds Wheel e Sdist verificadas com `SHA256SUMS.txt`, 581 testes passando com 88,42% de branch coverage. |
+
+## Checkpoint de correção do release v0.1.1
+
+- Auto-detecção agora resolve um adapter concreto antes do ImportManager;
+  execução fica desabilitada na GUI até existir workspace aberto.
+- Universal Table suporta TXT tabulado, XLSX/XLSM via openpyxl e inferência
+  de colunas `access_code`/SMILES; seleção de arquivo único usa raiz de plano
+  canônica.
+- SMILES2Docking lê MOL2 multi-estrutura e recupera SMILES do XLSX referenciado
+  pelo `run_report`; identidades ausentes geram QC explícito.
+- ImportManager usa o mesmo UnitOfWork para o índice de identidade, evitando
+  locks/stale reports em campanhas grandes; falhas químicas por registro são
+  preservadas como QC e não descartadas silenciosamente.
+- Validação: 611 testes, 86,85% de branch coverage, Ruff, mypy, `uv lock`,
+  `uv pip check`, `pip-audit` e `uv build` aprovados.
+- Teste real: `ECBD actives-AMG_PC_Win.xlsx` importou 1.864 de 2.020
+  identidades válidas, com 156 QC; `ECBD_actives_mopac_v5` parseou 2.115 MOL2
+  com identidade recuperada e validação válida.
 
 
 

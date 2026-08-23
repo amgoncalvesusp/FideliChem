@@ -74,6 +74,8 @@ def test_import_view_browse_supports_folders_and_files(
 
     assert Path(view.path_input.text()) == source_file
     assert view.probe_btn.isEnabled()
+    assert not view.import_btn.isEnabled()
+    view.set_workspace_ready(True)
     assert view.import_btn.isEnabled()
 
 

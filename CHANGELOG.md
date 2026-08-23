@@ -8,7 +8,17 @@ All notable changes to FideliChem will be documented in this file.
 
 - Activated native folder and file choosers in the project, evidence import,
   and export views.
-- Added evidence file filters for CSV, TSV, JSON, JSONL, XLSX, XLS, and MOL2.
+- Added evidence file filters for CSV, TSV, TXT, JSON, JSONL, XLSX, XLS, and
+  MOL2.
+- Fixed automatic adapter routing and disabled execution until a workspace is
+  open, so a selected source cannot fail because the GUI has no project.
+- Added native XLSX reading through openpyxl, header inference for common
+  identity columns, and tab-delimited TXT reading.
+- Added SMILES2Docking MOL2 parsing with source-XLSX identity recovery for
+  generated stereoisomer names and clear QC diagnostics when identity is
+  unavailable.
+- Import failures now include a concise diagnostic in the preview/status bar
+  and the full exception is recorded through the application logger.
 
 ## 0.1.0 - 2026-08-23
 

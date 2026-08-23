@@ -17,6 +17,8 @@ from fidelichem.domain.adapters import (
     ImportBundle,
     ImportPlan,
     ImportResult,
+    QCIssue,
+    QCSeverity,
 )
 from fidelichem.domain.chemistry import (
     CanonicalizationResult,
@@ -27,6 +29,7 @@ from fidelichem.domain.chemistry import (
     SelectionMode,
 )
 from fidelichem.domain.errors import (
+    ChemistryError,
     ImportValidationError,
 )
 from fidelichem.domain.json import canonical_json
@@ -44,6 +47,7 @@ from fidelichem.identity.models import (
 from fidelichem.identity.resolver import IdentityResolver
 from fidelichem.identity.service import IdentityService
 from fidelichem.importers.duplicate_detector import DuplicateImportDetector
+from fidelichem.storage.identity_index import PersistentIdentityIndex
 from fidelichem.storage.session import UnitOfWork
 
 logger = logging.getLogger(__name__)
@@ -126,7 +130,56 @@ class ImportManager:
             )
             raise ImportValidationError(f"Import validation failed: {error_details}")
 
+        # Canonicalization is a per-record boundary.  A campaign can contain
+        # salts, co-crystals, or structures outside the bounded chemistry
+        # policy; those records must remain visible as QC findings without
+        # preventing valid neighboring records from being imported.
+        canonical_results: list[CanonicalizationResult | None] = []
+        chemistry_qc: list[QCIssue] = []
         now = self._clock()
+        for compound in bundle.compounds:
+            if not compound.source_smiles:
+                canonical_results.append(None)
+                continue
+            try:
+                canonical_results.append(
+                    self._chemistry_service.canonicalize(
+                        compound.source_smiles,
+                        preparation_ph=compound.preparation_ph,
+                        created_at=now,
+                    )
+                )
+            except ChemistryError as exc:
+                canonical_results.append(None)
+                chemistry_qc.append(
+                    QCIssue(
+                        code=f"QC_{exc.diagnostic_code}",
+                        message=(
+                            f"Compound '{compound.source_value}' was skipped: "
+                            f"{exc.message}"
+                        ),
+                        severity=QCSeverity.WARNING,
+                        source_file=compound.source_artifact_path,
+                        entity_reference=str(compound.source_value),
+                    )
+                )
+
+        if chemistry_qc:
+            bundle = bundle.model_copy(
+                update={
+                    "qc_messages": bundle.qc_messages + tuple(chemistry_qc),
+                }
+            )
+            val_report = val_report.model_copy(
+                update={
+                    "warnings": val_report.warnings
+                    + (
+                        f"Skipped {len(chemistry_qc)} compounds whose structures "
+                        "failed the chemistry identity policy; see QC diagnostics.",
+                    ),
+                    "qc_issues": bundle.qc_messages,
+                }
+            )
 
         # 4. Dry-run early return
         if dry_run:
@@ -178,16 +231,16 @@ class ImportManager:
                 )
 
                 # Resolve and confirm chemical identities for the active batch.
-                index = self._identity_service._index_factory()
+                # Read identity projections through the active UoW session.
+                # Opening a second SQLite connection while this transaction is
+                # ingesting thousands of rows can hit the database lock and
+                # turns a valid import into an opaque StorageReadError.
+                index = PersistentIdentityIndex(uow.session)
                 resolver = IdentityResolver()
-                for compound in bundle.compounds:
-                    canon_result: CanonicalizationResult | None = None
-                    if compound.source_smiles:
-                        canon_result = self._chemistry_service.canonicalize(
-                            compound.source_smiles,
-                            preparation_ph=compound.preparation_ph,
-                            created_at=now,
-                        )
+                for compound_index, compound in enumerate(bundle.compounds):
+                    canon_result = canonical_results[compound_index]
+                    if compound.source_smiles and canon_result is None:
+                        continue
 
                     claim = IdentityClaim(
                         source_system=compound.source_system,

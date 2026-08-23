@@ -92,12 +92,18 @@ class ImportView(QWidget):
         self.preview_text.setReadOnly(True)
         self.preview_text.setObjectName("importPreviewText")
         layout.addWidget(self.preview_text)
+        self._workspace_ready = False
         self._sync_action_state(self.path_input.text())
 
     def _sync_action_state(self, path: str) -> None:
         enabled = bool(path.strip())
         self.probe_btn.setEnabled(enabled)
-        self.import_btn.setEnabled(enabled)
+        self.import_btn.setEnabled(enabled and self._workspace_ready)
+
+    def set_workspace_ready(self, ready: bool) -> None:
+        """Enable committing imports only after a project workspace is open."""
+        self._workspace_ready = ready
+        self._sync_action_state(self.path_input.text())
 
     def _on_probe_clicked(self) -> None:
         adapter = self.adapter_combo.currentText()
@@ -119,7 +125,7 @@ class ImportView(QWidget):
             self,
             "Choose evidence file",
             self.path_input.text().strip(),
-            "Evidence files (*.csv *.tsv *.json *.jsonl *.xlsx *.xls *.mol2);;"
+            "Evidence files (*.csv *.tsv *.txt *.json *.jsonl *.xlsx *.xls *.mol2);;"
             "All files (*)",
         )
         if path:

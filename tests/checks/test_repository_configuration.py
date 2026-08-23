@@ -30,6 +30,7 @@ def test_runtime_dependencies_include_phase_one_storage_stack() -> None:
         "SQLAlchemy>=2.0,<3",
         "alembic>=1.13,<2",
         "rdkit==2026.3.4",
+        "openpyxl>=3.1,<4",
         "xlrd>=2.0,<3",
     ]
     dependency_groups = pyproject["dependency-groups"]

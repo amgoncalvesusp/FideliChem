@@ -78,16 +78,18 @@ class IdentityService:
             self._hit("before_chemistry")
         elif report.kind is ResolutionKind.NEW_STATE:
             self._hit("before_state")
-        self._validate_live_report(result, claim, report, selection)
         if uow is not None:
             # ImportManager may own one transaction for the whole bundle.  The
             # caller reserves the SQLite writer before creating the batch; we
             # intentionally do not open a nested UnitOfWork here.
+            from fidelichem.storage.identity_index import PersistentIdentityIndex
+
             reuse_after_race = self._validate_live_report(
                 result,
                 claim,
                 report,
                 selection,
+                index=PersistentIdentityIndex(uow.session),
                 allow_structure_race=True,
             )
             return self._confirm_in_uow(
@@ -100,6 +102,13 @@ class IdentityService:
                 reuse_after_race=reuse_after_race,
             )
         try:
+            self._validate_live_report(
+                result,
+                claim,
+                report,
+                selection,
+                index=self._index_factory(),
+            )
             with self._uow_factory() as uow:
                 self._reserve_write(uow)
                 reuse_after_race = self._validate_live_report(
@@ -107,6 +116,7 @@ class IdentityService:
                     claim,
                     report,
                     selection,
+                    index=self._index_factory(),
                     allow_structure_race=True,
                 )
                 return self._confirm_in_uow(
@@ -304,6 +314,7 @@ class IdentityService:
         report: ResolutionReport,
         selection: IdentitySelection,
         *,
+        index: IdentityIndex,
         allow_structure_race: bool = False,
     ) -> bool:
         """Reject a caller-supplied report which is stale at the write boundary."""
@@ -311,7 +322,7 @@ class IdentityService:
             live = IdentityResolver().resolve(
                 result,
                 claim,
-                self._index_factory(),
+                index,
             )
         except (ValidationError, TypeError, ValueError):
             raise ValueError("live identity evidence is invalid") from None

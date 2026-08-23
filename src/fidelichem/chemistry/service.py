@@ -415,6 +415,43 @@ class ChemistryService:
         return matrix
 
     @staticmethod
+    def derive_smiles_from_mol2_block(block: str) -> str | None:
+        """Derive a validated isomeric SMILES from a TRIPOS MOL2 block.
+
+        MOL2 interpretation belongs to the chemistry boundary so adapters can
+        remain format translators and cannot spread RDKit calls through the
+        application.  The method is deliberately conservative: malformed or
+        chemically invalid blocks return ``None`` instead of inventing an
+        identity.
+        """
+        if not isinstance(block, str) or not block.strip():
+            return None
+        try:
+            with _quiet_rdkit():
+                molecule = Chem.MolFromMol2Block(
+                    block,
+                    sanitize=False,
+                    removeHs=False,
+                )
+                if molecule is None:
+                    return None
+                molecule = Chem.RemoveHs(molecule, sanitize=False)
+                for atom in molecule.GetAtoms():
+                    atom_type = (
+                        atom.GetProp("_TriposAtomType")
+                        if atom.HasProp("_TriposAtomType")
+                        else ""
+                    )
+                    if atom_type.startswith("N.4") and atom.GetFormalCharge() == 0:
+                        atom.SetFormalCharge(1)
+                candidate = Chem.MolToSmiles(molecule, isomericSmiles=True)
+                if not candidate or Chem.MolFromSmiles(candidate) is None:
+                    return None
+                return cast(str, candidate)
+        except (RuntimeError, ValueError, TypeError):
+            return None
+
+    @staticmethod
     def _parse_3d_mol(block: str) -> Any:
         if not isinstance(block, str) or not block.strip():
             raise InvalidStructureError()
