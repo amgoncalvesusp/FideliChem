@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import csv
 import json
 import sqlite3
@@ -15,6 +14,7 @@ from fidelichem.adapters.base import (
     build_import_plan,
     compute_source_artifacts,
     scan_source_files,
+    verify_import_plan,
 )
 from fidelichem.adapters.table.readers import detect_delimiter
 from fidelichem.domain.adapters import (
@@ -62,12 +62,16 @@ class Smiles2SelectAdapter:
         ]
         for sql_rel in sqlite_matches:
             sql_path = source / sql_rel
-            with contextlib.suppress(Exception):
+            try:
                 conn = sqlite3.connect(sql_path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                tables = {row[0].lower() for row in cursor.fetchall()}
-                conn.close()
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    )
+                    tables = {row[0].lower() for row in cursor.fetchall()}
+                finally:
+                    conn.close()
                 if any(
                     t in tables
                     for t in (
@@ -84,6 +88,8 @@ class Smiles2SelectAdapter:
                         requires_user_mapping=False,
                         suggested_adapter=self.adapter_id,
                     )
+            except (OSError, sqlite3.Error):
+                continue
 
         json_or_csv = [
             f
@@ -139,6 +145,7 @@ class Smiles2SelectAdapter:
 
     def parse(self, plan: ImportPlan) -> ImportBundle:
         """Parse compounds, selection decisions, and physicochemical metrics."""
+        verify_import_plan(plan)
         source_root = Path(plan.source_root)
         source_artifacts: list[SourceArtifactRecord] = []
         qc_messages: list[QCIssue] = []
@@ -197,31 +204,32 @@ class Smiles2SelectAdapter:
         qc_messages: list[QCIssue],
     ) -> list[RawCompoundRecord]:
         records: list[RawCompoundRecord] = []
-        with contextlib.suppress(Exception):
+        try:
             conn = sqlite3.connect(file_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            tables = [row[0] for row in cursor.fetchall()]
-            target_table = next(
-                (
-                    t
-                    for t in tables
-                    if t.lower()
-                    in (
-                        "selections",
-                        "compounds",
-                        "results",
-                        "filtered_compounds",
-                    )
-                ),
-                tables[0] if tables else None,
-            )
+            try:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+                tables = [row[0] for row in cursor.fetchall()]
+                allowed_tables = {
+                    "selections",
+                    "compounds",
+                    "results",
+                    "filtered_compounds",
+                }
+                target_table = next(
+                    (t for t in tables if str(t).lower() in allowed_tables), None
+                )
+                if target_table is None:
+                    return records
 
-            if target_table:
-                cursor.execute(f"SELECT * FROM {target_table}")
-                rows = cursor.fetchall()
-                for row in rows:
+                # Table names are selected from sqlite_master but still require
+                # identifier quoting; values cannot be bound as SQL parameters.
+                quoted_table = '"' + str(target_table).replace('"', '""') + '"'
+                cursor.execute(f"SELECT * FROM {quoted_table}")
+                for row in cursor.fetchall():
                     row_dict = dict(row)
                     cmpd_id = str(
                         row_dict.get("compound_id")
@@ -239,19 +247,18 @@ class Smiles2SelectAdapter:
                         bool(selected_val) if selected_val is not None else True
                     )
 
-                    meta: dict[str, Any] = {
-                        "source_adapter": self.adapter_id,
-                    }
-                    for k, v in row_dict.items():
-                        if k.lower() not in (
+                    meta: dict[str, Any] = {"source_adapter": self.adapter_id}
+                    for key, value in row_dict.items():
+                        if key.lower() not in (
                             "compound_id",
                             "id",
                             "smiles",
                             "canonical_smiles",
                         ):
-                            meta[k] = bool(v) if k.lower() == "selected" else v
+                            meta[key] = (
+                                bool(value) if key.lower() == "selected" else value
+                            )
                     meta["selected"] = is_selected
-
                     records.append(
                         RawCompoundRecord(
                             source_system="smiles2select",
@@ -261,7 +268,12 @@ class Smiles2SelectAdapter:
                             metadata=meta,
                         )
                     )
-            conn.close()
+            finally:
+                conn.close()
+        except (OSError, sqlite3.Error) as exc:
+            raise ValueError(
+                f"SMILES2Select SQLite source '{rel_path}' could not be parsed"
+            ) from exc
         return records
 
     def _parse_json(
@@ -271,18 +283,22 @@ class Smiles2SelectAdapter:
         qc_messages: list[QCIssue],
     ) -> list[RawCompoundRecord]:
         records: list[RawCompoundRecord] = []
-        with contextlib.suppress(Exception):
+        try:
             content = file_path.read_text(encoding="utf-8")
             data = json.loads(content)
-            items = (
-                data
-                if isinstance(data, list)
-                else data.get("compounds", data.get("results", []))
-            )
+            items: Any
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = data.get("compounds", data.get("results", []))
+            else:
+                raise ValueError("top-level JSON value must be an array or object")
+            if not isinstance(items, list):
+                raise ValueError("compound collection must be an array")
 
             for idx, item in enumerate(items, start=1):
                 if not isinstance(item, dict):
-                    continue
+                    raise ValueError(f"compound row {idx} must be an object")
                 cmpd_id = str(
                     item.get("compound_id")
                     or item.get("id")
@@ -318,6 +334,10 @@ class Smiles2SelectAdapter:
                         metadata=meta,
                     )
                 )
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(
+                f"SMILES2Select JSON source '{rel_path}' could not be parsed"
+            ) from exc
         return records
 
     def _parse_csv(
@@ -327,10 +347,10 @@ class Smiles2SelectAdapter:
         qc_messages: list[QCIssue],
     ) -> list[RawCompoundRecord]:
         records: list[RawCompoundRecord] = []
-        with contextlib.suppress(Exception):
+        try:
             delim = detect_delimiter(file_path)
             with file_path.open(
-                mode="r", encoding="utf-8", errors="replace", newline=""
+                mode="r", encoding="utf-8", newline=""
             ) as f:
                 reader = csv.DictReader(f, delimiter=delim)
                 for idx, row in enumerate(reader, start=1):
@@ -348,32 +368,36 @@ class Smiles2SelectAdapter:
                         if selected_val is not None
                         else True
                     )
+                    meta = {
+                        "source_adapter": self.adapter_id,
+                        **{
+                            k: v
+                            for k, v in row.items()
+                            if k
+                            not in (
+                                "compound_id",
+                                "id",
+                                "smiles",
+                                "canonical_smiles",
+                                "selected",
+                            )
+                        },
+                        "selected": is_selected,
+                    }
 
-                meta = {
-                    "selected": is_selected,
-                    "source_adapter": self.adapter_id,
-                    **{
-                        k: v
-                        for k, v in row.items()
-                        if k
-                        not in (
-                            "compound_id",
-                            "id",
-                            "smiles",
-                            "canonical_smiles",
+                    records.append(
+                        RawCompoundRecord(
+                            source_system="smiles2select",
+                            source_value=cmpd_id,
+                            source_smiles=str(smiles) if smiles else None,
+                            source_artifact_path=rel_path,
+                            metadata=meta,
                         )
-                    },
-                }
-
-                records.append(
-                    RawCompoundRecord(
-                        source_system="smiles2select",
-                        source_value=cmpd_id,
-                        source_smiles=str(smiles) if smiles else None,
-                        source_artifact_path=rel_path,
-                        metadata=meta,
                     )
-                )
+        except (OSError, UnicodeError, csv.Error, ValueError) as exc:
+            raise ValueError(
+                f"SMILES2Select table source '{rel_path}' could not be parsed"
+            ) from exc
         return records
 
     def validate(self, bundle: ImportBundle) -> ValidationReport:

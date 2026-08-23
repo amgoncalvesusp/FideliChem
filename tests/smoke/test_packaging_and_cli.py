@@ -30,11 +30,15 @@ def test_cli_version_flag() -> None:
 @pytest.mark.smoke
 def test_cli_export_subcommand(tmp_path: Path) -> None:
     out_dir = tmp_path / "cli_export"
-    with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+    with (
+        patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+    ):
         ret = main(["export", "--output", str(out_dir), "--formats", "csv,json"])
-        assert ret == 0
-        assert "Export completed" in mock_stdout.getvalue()
-        assert (out_dir / "manifest.json").exists()
+        assert ret == 2
+        assert "--project" in mock_stderr.getvalue()
+        assert not mock_stdout.getvalue()
+        assert not (out_dir / "manifest.json").exists()
 
 
 @pytest.mark.smoke

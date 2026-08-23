@@ -22,12 +22,22 @@ class QCView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
-        title = QLabel("<h2>Quality Control Diagnostics</h2>", self)
+        title = QLabel("Quality control diagnostics", self)
+        title.setObjectName("pageTitle")
         layout.addWidget(title)
+        subtitle = QLabel(
+            "Inspect warnings and errors before trusting downstream decisions.", self
+        )
+        subtitle.setObjectName("pageSubtitle")
+        layout.addWidget(subtitle)
 
         filter_layout = QHBoxLayout()
-        filter_layout.addWidget(QLabel("Severity Filter:", self))
+        filter_label = QLabel("SEVERITY FILTER", self)
+        filter_label.setObjectName("sectionLabel")
+        filter_layout.addWidget(filter_label)
         self.severity_combo = QComboBox(self)
         self.severity_combo.addItems(["ALL", "ERROR", "WARNING", "INFO"])
         filter_layout.addWidget(self.severity_combo)

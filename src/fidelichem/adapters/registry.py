@@ -19,6 +19,53 @@ class AdapterRegistry:
     def __init__(self) -> None:
         self._adapters: dict[str, EvidenceAdapter] = {}
 
+    @classmethod
+    def with_builtins(cls) -> AdapterRegistry:
+        """Create a registry containing FideliChem's bundled adapters.
+
+        The plain constructor intentionally remains empty for callers that
+        need an isolated registry (notably tests and embedded applications).
+        Application entry points should use this factory so the packaged
+        adapters are available even when distribution entry points are not
+        installed or discoverable.
+        """
+        registry = cls()
+        registry.register_builtin_adapters()
+        return registry
+
+    def register_builtin_adapters(self) -> int:
+        """Register all adapters shipped with FideliChem.
+
+        Returns the number of adapters newly registered.  Existing adapters
+        are preserved, allowing applications to override a bundled adapter
+        explicitly through :meth:`register`.
+        """
+        from fidelichem.adapters.docklens import DockLensAdapter
+        from fidelichem.adapters.gold import GoldAdapter
+        from fidelichem.adapters.gromacs import GromacsAdapter
+        from fidelichem.adapters.moldynstudio import MolDynStudioAdapter
+        from fidelichem.adapters.smiles2docking import Smiles2DockingAdapter
+        from fidelichem.adapters.smiles2select import Smiles2SelectAdapter
+        from fidelichem.adapters.table import UniversalTableAdapter
+
+        builtins: tuple[type[EvidenceAdapter], ...] = (
+            GoldAdapter,
+            Smiles2DockingAdapter,
+            Smiles2SelectAdapter,
+            DockLensAdapter,
+            GromacsAdapter,
+            MolDynStudioAdapter,
+            UniversalTableAdapter,
+        )
+        registered = 0
+        for adapter_cls in builtins:
+            adapter_id = adapter_cls.adapter_id
+            if self.has(adapter_id):
+                continue
+            self.register(adapter_cls)
+            registered += 1
+        return registered
+
     def register(
         self,
         adapter_or_cls: EvidenceAdapter | type[EvidenceAdapter],

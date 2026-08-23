@@ -7,11 +7,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from fidelichem.adapters.base import (
     EvidenceAdapter,
     build_import_plan,
     compute_source_artifacts,
     scan_source_files,
+    verify_import_plan,
 )
 from fidelichem.domain.adapters import (
     DetectionReport,
@@ -114,3 +117,19 @@ def test_build_import_plan(tmp_path: Path) -> None:
     assert plan.options == {"header": True}
     assert plan.created_at == clock_now
     assert len(plan.plan_hash) == 64
+
+
+def test_verify_import_plan_rejects_changed_source(tmp_path: Path) -> None:
+    file_path = tmp_path / "scores.lst"
+    file_path.write_text("score 42\n", encoding="utf-8")
+    plan = build_import_plan(
+        adapter_id="fidelichem.dummy",
+        adapter_version="0.1.0",
+        source_root=str(tmp_path),
+        artifacts=compute_source_artifacts(tmp_path, ["scores.lst"]),
+    )
+
+    file_path.write_text("score 99\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="source content changed"):
+        verify_import_plan(plan)

@@ -532,3 +532,391 @@ class _IdentityResolutionRow(Base):
     actor_kind: Mapped[str] = mapped_column(String(10))
     actor_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class _EvidenceTargetRow(Base):
+    """Immutable imported target evidence and its provenance edge."""
+
+    __tablename__ = "evidence_target"
+    __table_args__ = (
+        Index("ix_evidence_target_import_batch_id", "import_batch_id"),
+        UniqueConstraint(
+            "import_batch_id", "name", name="uq_evidence_target_batch_name"
+        ),
+        CheckConstraint(_sql_nonblank("name"), name="ck_evidence_target_name"),
+        CheckConstraint(
+            "sequence_hash IS NULL OR (length(sequence_hash) = 64 AND "
+            "sequence_hash = lower(sequence_hash) AND "
+            "sequence_hash NOT GLOB '*[^0-9a-f]*')",
+            name="ck_evidence_target_sequence_hash",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    import_batch_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "import_batch.id", name="fk_evidence_target_batch", ondelete="RESTRICT"
+        ),
+    )
+    source_artifact_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "source_artifact.id",
+            name="fk_evidence_target_artifact",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+    name: Mapped[str] = mapped_column(Text)
+    accession: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pdb_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chain: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sequence_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class _DockingRunRow(Base):
+    """Immutable docking run evidence with parent target and provenance."""
+
+    __tablename__ = "docking_run"
+    __table_args__ = (
+        Index("ix_docking_run_import_batch_id", "import_batch_id"),
+        UniqueConstraint(
+            "import_batch_id", "run_name", name="uq_docking_run_batch_name"
+        ),
+        CheckConstraint(_sql_nonblank("run_name"), name="ck_docking_run_name"),
+        CheckConstraint(_sql_nonblank("engine"), name="ck_docking_run_engine"),
+        CheckConstraint(
+            "configuration_hash IS NULL OR (length(configuration_hash) = 64 AND "
+            "configuration_hash = lower(configuration_hash) AND "
+            "configuration_hash NOT GLOB '*[^0-9a-f]*')",
+            name="ck_docking_run_config_hash",
+        ),
+        CheckConstraint(
+            "json_valid(parameters_json)", name="ck_docking_run_parameters_json"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    import_batch_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("import_batch.id", name="fk_docking_run_batch", ondelete="RESTRICT"),
+    )
+    source_artifact_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "source_artifact.id", name="fk_docking_run_artifact", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
+    target_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "evidence_target.id", name="fk_docking_run_target", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
+    run_name: Mapped[str] = mapped_column(Text)
+    target_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    engine: Mapped[str] = mapped_column(Text)
+    engine_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    configuration_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    parameters_json: Mapped[str] = mapped_column(
+        Text, default="{}", server_default=text("'{}'")
+    )
+
+
+class _PoseRow(Base):
+    """Immutable docking pose evidence."""
+
+    __tablename__ = "pose"
+    __table_args__ = (
+        Index("ix_pose_import_batch_id", "import_batch_id"),
+        Index("ix_pose_docking_run_id", "docking_run_id"),
+        UniqueConstraint(
+            "docking_run_id", "source_pose_id", name="uq_pose_run_source_id"
+        ),
+        CheckConstraint(_sql_nonblank("run_name"), name="ck_pose_run_name"),
+        CheckConstraint(
+            _sql_nonblank("compound_source_system"), name="ck_pose_source_system"
+        ),
+        CheckConstraint(
+            _sql_nonblank("compound_source_value"), name="ck_pose_source_value"
+        ),
+        CheckConstraint(_sql_nonblank("source_pose_id"), name="ck_pose_source_id"),
+        CheckConstraint("rank >= 1", name="ck_pose_rank"),
+        CheckConstraint(
+            "coordinate_hash IS NULL OR (length(coordinate_hash) = 64 AND "
+            "coordinate_hash = lower(coordinate_hash) AND "
+            "coordinate_hash NOT GLOB '*[^0-9a-f]*')",
+            name="ck_pose_coordinate_hash",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    import_batch_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("import_batch.id", name="fk_pose_batch", ondelete="RESTRICT"),
+    )
+    source_artifact_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("source_artifact.id", name="fk_pose_artifact", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    docking_run_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("docking_run.id", name="fk_pose_docking_run", ondelete="RESTRICT"),
+    )
+    run_name: Mapped[str] = mapped_column(Text)
+    compound_source_system: Mapped[str] = mapped_column(Text)
+    compound_source_value: Mapped[str] = mapped_column(Text)
+    source_pose_id: Mapped[str] = mapped_column(Text)
+    rank: Mapped[int] = mapped_column(Integer)
+    structure_artifact_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    coordinate_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class _ScoreObservationRow(Base):
+    """Immutable score observation linked to a docking run and optional pose."""
+
+    __tablename__ = "score_observation"
+    __table_args__ = (
+        Index("ix_score_observation_import_batch_id", "import_batch_id"),
+        Index("ix_score_observation_docking_run_id", "docking_run_id"),
+        UniqueConstraint(
+            "docking_run_id",
+            "source_pose_id",
+            "score_key",
+            name="uq_score_run_pose_key",
+        ),
+        CheckConstraint(_sql_nonblank("run_name"), name="ck_score_run_name"),
+        CheckConstraint(
+            _sql_nonblank("compound_source_value"), name="ck_score_source_value"
+        ),
+        CheckConstraint(
+            _sql_nonblank("source_pose_id"), name="ck_score_source_pose_id"
+        ),
+        CheckConstraint(_sql_nonblank("score_key"), name="ck_score_key"),
+        CheckConstraint(
+            "raw_value = raw_value AND abs(raw_value) <= 1.7976931348623157e308",
+            name="ck_score_finite",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    import_batch_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("import_batch.id", name="fk_score_batch", ondelete="RESTRICT"),
+    )
+    source_artifact_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("source_artifact.id", name="fk_score_artifact", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    docking_run_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("docking_run.id", name="fk_score_docking_run", ondelete="RESTRICT"),
+    )
+    pose_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("pose.id", name="fk_score_pose", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    run_name: Mapped[str] = mapped_column(Text)
+    compound_source_value: Mapped[str] = mapped_column(Text)
+    source_pose_id: Mapped[str] = mapped_column(Text)
+    score_key: Mapped[str] = mapped_column(Text)
+    raw_value: Mapped[float] = mapped_column(Float)
+    source_artifact_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class _InteractionRow(Base):
+    """Immutable interaction evidence linked to optional pose/run/target parents."""
+
+    __tablename__ = "interaction"
+    __table_args__ = (
+        Index("ix_interaction_import_batch_id", "import_batch_id"),
+        Index("ix_interaction_pose_id", "pose_id"),
+        CheckConstraint(_sql_nonblank("run_name"), name="ck_interaction_run_name"),
+        CheckConstraint(
+            _sql_nonblank("compound_source_value"), name="ck_interaction_source_value"
+        ),
+        CheckConstraint(
+            _sql_nonblank("source_pose_id"), name="ck_interaction_source_pose_id"
+        ),
+        CheckConstraint(
+            _sql_nonblank("residue_name"), name="ck_interaction_residue_name"
+        ),
+        CheckConstraint(_sql_nonblank("interaction_type"), name="ck_interaction_type"),
+        CheckConstraint(
+            "json_valid(metadata_json)", name="ck_interaction_metadata_json"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    import_batch_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("import_batch.id", name="fk_interaction_batch", ondelete="RESTRICT"),
+    )
+    source_artifact_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "source_artifact.id", name="fk_interaction_artifact", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
+    docking_run_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "docking_run.id", name="fk_interaction_docking_run", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
+    pose_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("pose.id", name="fk_interaction_pose", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    target_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "evidence_target.id", name="fk_interaction_target", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
+    run_name: Mapped[str] = mapped_column(Text)
+    compound_source_value: Mapped[str] = mapped_column(Text)
+    source_pose_id: Mapped[str] = mapped_column(Text)
+    residue_name: Mapped[str] = mapped_column(Text)
+    interaction_type: Mapped[str] = mapped_column(Text)
+    target_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    residue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chain: Mapped[str | None] = mapped_column(Text, nullable=True)
+    distance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    angle: Mapped[float | None] = mapped_column(Float, nullable=True)
+    energy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    frequency: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ligand_feature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str] = mapped_column(
+        Text, default="{}", server_default=text("'{}'")
+    )
+
+
+class _MDRunRow(Base):
+    """Immutable molecular dynamics run evidence."""
+
+    __tablename__ = "md_run"
+    __table_args__ = (
+        Index("ix_md_run_import_batch_id", "import_batch_id"),
+        UniqueConstraint("import_batch_id", "run_name", name="uq_md_run_batch_name"),
+        CheckConstraint(_sql_nonblank("run_name"), name="ck_md_run_name"),
+        CheckConstraint(_sql_nonblank("engine"), name="ck_md_run_engine"),
+        CheckConstraint(
+            "duration_ns IS NULL OR (duration_ns = duration_ns AND "
+            "abs(duration_ns) <= 1.7976931348623157e308)",
+            name="ck_md_run_duration_finite",
+        ),
+        CheckConstraint(
+            "temperature_k IS NULL OR (temperature_k = temperature_k AND "
+            "abs(temperature_k) <= 1.7976931348623157e308)",
+            name="ck_md_run_temperature_finite",
+        ),
+        CheckConstraint(
+            "timestep_fs IS NULL OR (timestep_fs = timestep_fs AND "
+            "abs(timestep_fs) <= 1.7976931348623157e308)",
+            name="ck_md_run_timestep_finite",
+        ),
+        CheckConstraint(
+            "json_valid(parameters_json)", name="ck_md_run_parameters_json"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    import_batch_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("import_batch.id", name="fk_md_run_batch", ondelete="RESTRICT"),
+    )
+    source_artifact_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "source_artifact.id", name="fk_md_run_artifact", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
+    target_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("evidence_target.id", name="fk_md_run_target", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    pose_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("pose.id", name="fk_md_run_pose", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    run_name: Mapped[str] = mapped_column(Text)
+    target_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compound_source_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_pose_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ns: Mapped[float | None] = mapped_column(Float, nullable=True)
+    temperature_k: Mapped[float | None] = mapped_column(Float, nullable=True)
+    timestep_fs: Mapped[float | None] = mapped_column(Float, nullable=True)
+    engine: Mapped[str] = mapped_column(Text)
+    engine_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parameters_json: Mapped[str] = mapped_column(
+        Text, default="{}", server_default=text("'{}'")
+    )
+
+
+class _MDMetricRow(Base):
+    """Immutable molecular dynamics metric summary and time series."""
+
+    __tablename__ = "md_metric"
+    __table_args__ = (
+        Index("ix_md_metric_import_batch_id", "import_batch_id"),
+        Index("ix_md_metric_md_run_id", "md_run_id"),
+        UniqueConstraint("md_run_id", "metric_key", name="uq_md_metric_run_key"),
+        CheckConstraint(_sql_nonblank("run_name"), name="ck_md_metric_run_name"),
+        CheckConstraint(_sql_nonblank("metric_key"), name="ck_md_metric_key"),
+        CheckConstraint(
+            "json_valid(time_points_json)", name="ck_md_metric_time_points_json"
+        ),
+        CheckConstraint("json_valid(values_json)", name="ck_md_metric_values_json"),
+        CheckConstraint("json_valid(metadata_json)", name="ck_md_metric_metadata_json"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    import_batch_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("import_batch.id", name="fk_md_metric_batch", ondelete="RESTRICT"),
+    )
+    source_artifact_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "source_artifact.id", name="fk_md_metric_artifact", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
+    md_run_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("md_run.id", name="fk_md_metric_run", ondelete="RESTRICT"),
+    )
+    run_name: Mapped[str] = mapped_column(Text)
+    metric_key: Mapped[str] = mapped_column(Text)
+    unit: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mean_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    std_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    min_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    compound_source_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_pose_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_artifact_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    time_points_json: Mapped[str] = mapped_column(
+        Text, default="[]", server_default=text("'[]'")
+    )
+    values_json: Mapped[str] = mapped_column(
+        Text, default="[]", server_default=text("'[]'")
+    )
+    metadata_json: Mapped[str] = mapped_column(
+        Text, default="{}", server_default=text("'{}'")
+    )

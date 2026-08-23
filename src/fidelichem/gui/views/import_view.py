@@ -24,13 +24,23 @@ class ImportView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
-        title = QLabel("<h2>Evidence Importer</h2>", self)
+        title = QLabel("Evidence importer", self)
+        title.setObjectName("pageTitle")
         layout.addWidget(title)
+        subtitle = QLabel(
+            "Probe raw files first, then commit an auditable import.", self
+        )
+        subtitle.setObjectName("pageSubtitle")
+        layout.addWidget(subtitle)
 
         adapter_layout = QHBoxLayout()
+        adapter_layout.setSpacing(8)
         adapter_layout.addWidget(QLabel("Adapter:", self))
         self.adapter_combo = QComboBox(self)
+        self.adapter_combo.setAccessibleName("Evidence adapter")
         self.adapter_combo.addItems(
             [
                 "auto",
@@ -46,23 +56,35 @@ class ImportView(QWidget):
         adapter_layout.addWidget(self.adapter_combo)
 
         self.path_input = QLineEdit(self)
+        self.path_input.setAccessibleName("Evidence path")
         self.path_input.setPlaceholderText("Path to data folder or file")
+        self.path_input.textChanged.connect(self._sync_action_state)
         adapter_layout.addWidget(self.path_input)
 
         self.probe_btn = QPushButton("Probe Data", self)
+        self.probe_btn.setProperty("role", "secondary")
         self.probe_btn.clicked.connect(self._on_probe_clicked)
         adapter_layout.addWidget(self.probe_btn)
 
         self.import_btn = QPushButton("Execute Import", self)
+        self.import_btn.setProperty("role", "primary")
         self.import_btn.clicked.connect(self._on_import_clicked)
         adapter_layout.addWidget(self.import_btn)
         layout.addLayout(adapter_layout)
 
-        layout.addWidget(QLabel("Probe Preview:", self))
+        preview_label = QLabel("PROBE PREVIEW", self)
+        preview_label.setObjectName("sectionLabel")
+        layout.addWidget(preview_label)
         self.preview_text = QTextEdit(self)
         self.preview_text.setReadOnly(True)
         self.preview_text.setObjectName("importPreviewText")
         layout.addWidget(self.preview_text)
+        self._sync_action_state(self.path_input.text())
+
+    def _sync_action_state(self, path: str) -> None:
+        enabled = bool(path.strip())
+        self.probe_btn.setEnabled(enabled)
+        self.import_btn.setEnabled(enabled)
 
     def _on_probe_clicked(self) -> None:
         adapter = self.adapter_combo.currentText()

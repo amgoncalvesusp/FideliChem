@@ -14,6 +14,7 @@ from fidelichem.adapters.base import (
     build_import_plan,
     compute_source_artifacts,
     scan_source_files,
+    verify_import_plan,
 )
 from fidelichem.adapters.table.readers import (
     detect_format,
@@ -118,6 +119,7 @@ class UniversalTableAdapter:
 
     def parse(self, plan: ImportPlan) -> ImportBundle:
         """Parse tabular files row by row into canonical domain models."""
+        verify_import_plan(plan)
         source_root = Path(plan.source_root)
         source_artifacts: list[SourceArtifactRecord] = []
         targets_map: dict[str, TargetRecord] = {}

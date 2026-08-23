@@ -147,6 +147,21 @@ def preview_table(
             )
             return (headers, jsonl_data_rows)
 
+    if fmt in ("xlsx", "xlsm", "xls", "parquet"):
+        records = list(
+            read_table_records(
+                file_path,
+                TableMappingSchema(sheet_name=sheet_name),
+            )
+        )[:max_rows]
+        if not records:
+            return ((), ())
+        headers = tuple(records[0].keys())
+        preview_rows = tuple(
+            tuple(record.get(header) for header in headers) for record in records
+        )
+        return headers, preview_rows
+
     return ((), ())
 
 
@@ -220,6 +235,93 @@ def read_table_records(
                             yield {k: _clean_cell(v) for k, v in obj.items()}
                     except json.JSONDecodeError:
                         continue
+
+    elif fmt in ("xlsx", "xlsm"):
+        try:
+            import openpyxl  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise ValueError(
+                "XLSX input requires the optional 'openpyxl' dependency"
+            ) from exc
+
+        workbook = openpyxl.load_workbook(
+            filename=file_path,
+            read_only=True,
+            data_only=True,
+        )
+        try:
+            sheet_name = schema.sheet_name or workbook.sheetnames[0]
+            if sheet_name not in workbook.sheetnames:
+                raise ValueError(f"Worksheet '{sheet_name}' was not found")
+            rows = workbook[sheet_name].iter_rows(values_only=True)
+            for _ in range(schema.skip_rows):
+                next(rows, None)
+            sheet_headers: list[str] = []
+            for raw_row in rows:
+                row = list(raw_row)
+                if not any(value is not None and str(value).strip() for value in row):
+                    continue
+                if not sheet_headers:
+                    if schema.has_header:
+                        sheet_headers = [str(value).strip() for value in row]
+                        continue
+                    sheet_headers = [f"col_{i + 1}" for i in range(len(row))]
+                yield {
+                    header: _clean_cell(row[index] if index < len(row) else None)
+                    for index, header in enumerate(sheet_headers)
+                }
+        finally:
+            workbook.close()
+
+    elif fmt == "xls":
+        try:
+            import xlrd  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise ValueError(
+                "XLS input requires the optional 'xlrd' dependency"
+            ) from exc
+
+        try:
+            workbook = xlrd.open_workbook(filename=str(file_path), on_demand=True)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError("XLS input could not be read") from exc
+        try:
+            sheet_name = schema.sheet_name
+            if sheet_name is None:
+                sheet = workbook.sheet_by_index(0)
+            elif sheet_name in workbook.sheet_names:
+                sheet = workbook.sheet_by_name(sheet_name)
+            else:
+                raise ValueError(f"Worksheet '{sheet_name}' was not found")
+
+            xls_headers: list[str] = []
+            for row_index in range(schema.skip_rows, sheet.nrows):
+                row = list(sheet.row_values(row_index))
+                if not any(value is not None and str(value).strip() for value in row):
+                    continue
+                if not xls_headers:
+                    if schema.has_header:
+                        xls_headers = [str(value).strip() for value in row]
+                        continue
+                    xls_headers = [f"col_{i + 1}" for i in range(len(row))]
+                yield {
+                    header: _clean_cell(row[index] if index < len(row) else None)
+                    for index, header in enumerate(xls_headers)
+                }
+        finally:
+            workbook.release_resources()
+
+    elif fmt == "parquet":
+        try:
+            import pyarrow.parquet as parquet  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise ValueError(
+                "Parquet input requires the optional 'pyarrow' dependency"
+            ) from exc
+        table = parquet.read_table(file_path)
+        for item in table.to_pylist():
+            if isinstance(item, dict):
+                yield {key: _clean_cell(value) for key, value in item.items()}
 
 
 __all__ = [

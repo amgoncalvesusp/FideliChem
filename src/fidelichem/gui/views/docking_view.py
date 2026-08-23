@@ -20,9 +20,17 @@ class DockingView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
-        title = QLabel("<h2>Docking Analytics & Consensus</h2>", self)
+        title = QLabel("Docking analytics & consensus", self)
+        title.setObjectName("pageTitle")
         layout.addWidget(title)
+        subtitle = QLabel(
+            "Compare normalized rankings across scoring methods.", self
+        )
+        subtitle.setObjectName("pageSubtitle")
+        layout.addWidget(subtitle)
 
         self.table = QTableWidget(self)
         self.table.setColumnCount(5)

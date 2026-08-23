@@ -184,6 +184,15 @@ def test_registry_unregister() -> None:
     assert not registry.has("fidelichem.mock_a")
 
 
+def test_registry_with_builtins_registers_packaged_adapters() -> None:
+    registry = AdapterRegistry.with_builtins()
+
+    assert registry.has("fidelichem.gold")
+    assert registry.has("fidelichem.smiles2select")
+    assert registry.has("fidelichem.gromacs")
+    assert len(registry.list_adapters()) >= 7
+
+
 def test_registry_rejects_invalid_adapters() -> None:
     registry = AdapterRegistry()
 

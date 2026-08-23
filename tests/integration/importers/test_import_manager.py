@@ -268,6 +268,19 @@ def test_import_manager_execute_import_happy_path(project_setup) -> None:
         assert len(aliases) == 1
         assert aliases[0].source_value == "ligand_001"
 
+        # Scientific evidence is persisted with the same batch and remains
+        # queryable after the import transaction closes.
+        target_names = [
+            target.name for target in uow.evidence.list_targets(result.batch.id)
+        ]
+        assert target_names == ["TargetAlpha"]
+        assert len(uow.evidence.list_poses(result.batch.id)) == 1
+        assert len(uow.evidence.list_scores(result.batch.id)) == 1
+        assert (
+            uow.evidence.list_docking_runs(result.batch.id)[0].engine
+            == "UNSPECIFIED"
+        )
+
         # Audit events in DB
         events = uow.audit_events.list_by_batch(result.batch.id)
         assert any(e.action == "import.completed" for e in events)

@@ -11,6 +11,7 @@ from fidelichem.adapters.base import (
     build_import_plan,
     compute_source_artifacts,
     scan_source_files,
+    verify_import_plan,
 )
 from fidelichem.adapters.gold.parsers import (
     parse_gold_conf,
@@ -131,6 +132,7 @@ class GoldAdapter:
 
     def parse(self, plan: ImportPlan) -> ImportBundle:
         """Parse all GOLD artifacts into targets, runs, compounds, poses, and scores."""
+        verify_import_plan(plan)
         source_root = Path(plan.source_root)
         source_artifacts: list[SourceArtifactRecord] = []
         qc_messages: list[QCIssue] = []

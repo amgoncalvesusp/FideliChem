@@ -96,3 +96,23 @@ def test_smiles2select_parse_sqlite(tmp_path: Path) -> None:
 
     val = adapter.validate(bundle)
     assert val.is_valid
+
+
+def test_smiles2select_parse_csv_keeps_every_row(tmp_path: Path) -> None:
+    adapter = Smiles2SelectAdapter()
+    csv_file = tmp_path / "selection.csv"
+    csv_file.write_text(
+        "compound_id,smiles,selected,qed\n"
+        "CMPD_A,CCO,true,0.8\n"
+        "CMPD_B,CCN,false,0.4\n",
+        encoding="utf-8",
+    )
+
+    bundle = adapter.parse(adapter.plan(tmp_path))
+
+    assert [compound.source_value for compound in bundle.compounds] == [
+        "CMPD_A",
+        "CMPD_B",
+    ]
+    assert bundle.compounds[0].metadata["selected"] is True
+    assert bundle.compounds[1].metadata["selected"] is False

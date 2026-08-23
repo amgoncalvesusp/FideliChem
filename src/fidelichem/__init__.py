@@ -1,5 +1,10 @@
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = version("fidelichem")
+try:
+    __version__ = version("fidelichem") or "0.1.0"
+except PackageNotFoundError:
+    # Source checkouts run through pytest's ``pythonpath = ["src"]`` before
+    # wheel metadata exists; keep CLI/version output deterministic there too.
+    __version__ = "0.1.0"
 
 __all__ = ["__version__"]

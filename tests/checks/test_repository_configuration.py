@@ -19,6 +19,10 @@ def test_runtime_dependencies_include_phase_one_storage_stack() -> None:
     project = pyproject["project"]
 
     assert isinstance(project, dict)
+    assert project["authors"] == [
+        {"name": "Adriano Marques Gonçalves (UNIARA)"}
+    ]
+    assert project["license"] == {"file": "LICENSE"}
     assert project["requires-python"] == ">=3.12,<3.13"
     assert project["dependencies"] == [
         "PySide6>=6.8,<7",
@@ -26,10 +30,17 @@ def test_runtime_dependencies_include_phase_one_storage_stack() -> None:
         "SQLAlchemy>=2.0,<3",
         "alembic>=1.13,<2",
         "rdkit==2026.3.4",
+        "xlrd>=2.0,<3",
     ]
     dependency_groups = pyproject["dependency-groups"]
     assert isinstance(dependency_groups, dict)
     assert "hypothesis>=6.0" in dependency_groups["dev"]
+    wheel_target = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]
+    assert wheel_target["force-include"] == {
+        "src/fidelichem/gui/assets/fidelichem-mark.svg": (
+            "fidelichem/gui/assets/fidelichem-mark.svg"
+        )
+    }
 
 
 @pytest.mark.config
@@ -102,3 +113,17 @@ def test_ci_pins_official_actions_to_immutable_shas() -> None:
     for action, (sha, tag) in expected_actions.items():
         assert f"uses: {action}@{sha} # {tag}" in workflow
         assert f"uses: {action}@{tag}" not in workflow
+
+
+@pytest.mark.config
+def test_release_workflow_builds_both_installers_with_pinned_actions() -> None:
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    for required_text in (
+        "installer/fidelichem.iss",
+        "scripts/build_portable.py",
+        "SHA256SUMS.txt",
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4",
+        "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4",
+    ):
+        assert required_text in workflow

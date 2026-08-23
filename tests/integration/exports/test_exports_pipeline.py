@@ -70,3 +70,44 @@ def test_export_pipeline_with_manifest_and_methods(tmp_path: Path) -> None:
         assert fpath.exists()
         actual_sha = hashlib.sha256(fpath.read_bytes()).hexdigest()
         assert actual_sha == record["sha256"]
+
+
+def test_export_options_filter_persisted_evidence_without_mutating_snapshot(
+    tmp_path: Path,
+) -> None:
+    records = [
+        {"evidence_type": "target", "name": "Target A", "import_batch_id": "b1"},
+        {
+            "evidence_type": "score",
+            "score_key": "fitness",
+            "raw_value": -7.2,
+            "import_batch_id": "b1",
+        },
+        {
+            "evidence_type": "interaction",
+            "interaction_type": "hbond",
+            "import_batch_id": "b1",
+        },
+        {"evidence_type": "md_run", "run_name": "md-1", "import_batch_id": "b1"},
+    ]
+    original = [dict(record) for record in records]
+
+    result = ExportEngine().export_dataset(
+        project_name="Filtered",
+        records=records,
+        output_dir=tmp_path,
+        options=ExportOptions(
+            formats=(ExportFormat.JSON,),
+            include_scores=False,
+            include_interactions=False,
+            include_dynamics=False,
+            include_provenance=False,
+        ),
+    )
+
+    exported = json.loads(
+        (tmp_path / "Filtered_candidates.json").read_text(encoding="utf-8")
+    )
+    assert result.total_records == 1
+    assert exported == [{"evidence_type": "target", "name": "Target A"}]
+    assert records == original

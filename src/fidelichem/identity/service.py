@@ -64,6 +64,8 @@ class IdentityService:
         report: ResolutionReport,
         selection: IdentitySelection,
         actor: IdentityActor,
+        *,
+        uow: UnitOfWork | None = None,
     ) -> IdentityResolution:
         result, claim, report, selection, actor = self._validate_confirm_inputs(
             result, claim, report, selection, actor
@@ -77,6 +79,26 @@ class IdentityService:
         elif report.kind is ResolutionKind.NEW_STATE:
             self._hit("before_state")
         self._validate_live_report(result, claim, report, selection)
+        if uow is not None:
+            # ImportManager may own one transaction for the whole bundle.  The
+            # caller reserves the SQLite writer before creating the batch; we
+            # intentionally do not open a nested UnitOfWork here.
+            reuse_after_race = self._validate_live_report(
+                result,
+                claim,
+                report,
+                selection,
+                allow_structure_race=True,
+            )
+            return self._confirm_in_uow(
+                uow,
+                result,
+                claim,
+                report,
+                selection,
+                actor,
+                reuse_after_race=reuse_after_race,
+            )
         try:
             with self._uow_factory() as uow:
                 self._reserve_write(uow)
@@ -117,6 +139,11 @@ class IdentityService:
                     actor,
                     reuse_after_race=True,
                 )
+
+    def reserve_write(self, uow: UnitOfWork) -> None:
+        """Reserve the SQLite writer for a caller-owned import transaction."""
+
+        self._reserve_write(uow)
 
     def reassign(
         self,

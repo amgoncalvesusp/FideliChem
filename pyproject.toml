@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "fidelichem"
 version = "0.1.0"
 description = "Explainable multi-fidelity molecular evidence and decision platform"
+authors = [{ name = "Adriano Marques Gonçalves (UNIARA)" }]
+license = { file = "LICENSE" }
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "PySide6>=6.8,<7",
@@ -13,6 +15,7 @@ dependencies = [
   "SQLAlchemy>=2.0,<3",
   "alembic>=1.13,<2",
   "rdkit==2026.3.4",
+  "xlrd>=2.0,<3",
 ]
 
 [project.scripts]
@@ -36,10 +39,13 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/fidelichem"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/fidelichem/gui/assets/fidelichem-mark.svg" = "fidelichem/gui/assets/fidelichem-mark.svg"
+
 [tool.pytest.ini_options]
 addopts = ["-ra", "--strict-config", "--strict-markers"]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 qt_api = "pyside6"
 markers = [
   "unit: isolated unit tests",
@@ -67,6 +73,7 @@ select = ["B", "E", "F", "I", "SIM", "UP"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-packages = ["fidelichem"]
+mypy_path = "src"
+files = ["src/fidelichem"]
 
 

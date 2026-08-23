@@ -12,6 +12,9 @@ from fidelichem.domain.adapters import (
     DockingRunRecord,
     ImportBundle,
     ImportPlan,
+    InteractionRecord,
+    MDMetricRecord,
+    MDRunRecord,
     PoseRecord,
     QCIssue,
     QCSeverity,
@@ -66,6 +69,28 @@ def test_detection_report_confidence_bounds() -> None:
             confidence=1.1,
             detected_format="fmt",
             suggested_adapter="adapter",
+        )
+
+
+def test_scientific_measurements_reject_non_finite_values() -> None:
+    with pytest.raises(ValidationError, match="finite"):
+        InteractionRecord(
+            run_name="run",
+            compound_source_value="cmpd",
+            source_pose_id="pose",
+            residue_name="SER10",
+            interaction_type="hydrogen_bond",
+            distance=float("nan"),
+        )
+
+    with pytest.raises(ValidationError, match="finite"):
+        MDRunRecord(run_name="run", duration_ns=float("inf"))
+
+    with pytest.raises(ValidationError, match="finite"):
+        MDMetricRecord(
+            run_name="run",
+            metric_key="rmsd",
+            values=(0.1, float("nan")),
         )
 
 

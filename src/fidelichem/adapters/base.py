@@ -110,6 +110,31 @@ def compute_source_artifacts(
     return tuple(sorted(artifacts, key=lambda a: a.relative_path))
 
 
+def verify_import_plan(plan: ImportPlan) -> None:
+    """Verify that every source still matches the immutable import plan.
+
+    Planning is deliberately separate from parsing so a user can review a
+    plan before importing.  Re-hashing at the parse boundary prevents a file
+    changed in that interval from being parsed under stale provenance.
+    """
+    expected = dict(plan.file_hashes)
+    if set(expected) != set(plan.source_files):
+        raise ValueError("Import plan source files and hashes do not match")
+
+    actual = compute_source_artifacts(Path(plan.source_root), plan.source_files)
+    actual_hashes = {artifact.relative_path: artifact.sha256 for artifact in actual}
+    mismatches = [
+        rel_path
+        for rel_path in plan.source_files
+        if actual_hashes.get(rel_path) != expected.get(rel_path)
+    ]
+    if mismatches:
+        paths = ", ".join(sorted(mismatches))
+        raise ValueError(
+            f"Import plan is stale; source content changed since planning: {paths}"
+        )
+
+
 def build_import_plan(
     adapter_id: str,
     adapter_version: str,
@@ -150,4 +175,5 @@ __all__ = [
     "build_import_plan",
     "compute_source_artifacts",
     "scan_source_files",
+    "verify_import_plan",
 ]

@@ -22,9 +22,17 @@ class DecisionView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(12)
 
-        title = QLabel("<h2>Decision Engine & Triage</h2>", self)
+        title = QLabel("Decision engine & triage", self)
+        title.setObjectName("pageTitle")
         main_layout.addWidget(title)
+        subtitle = QLabel(
+            "Make next-evidence choices transparent and reviewable.", self
+        )
+        subtitle.setObjectName("pageSubtitle")
+        main_layout.addWidget(subtitle)
 
         splitter = QSplitter(self)
 
@@ -51,6 +59,7 @@ class DecisionView(QWidget):
         # Right: Explanations panel
         details_container = QWidget(self)
         details_layout = QVBoxLayout(details_container)
+        details_layout.setContentsMargins(6, 0, 0, 0)
         details_layout.addWidget(
             QLabel(
                 "<b>Justifications & Recommended Next Evidence:</b>",

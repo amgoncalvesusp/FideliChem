@@ -55,6 +55,13 @@ def create_parser() -> ArgumentParser:
         help="Export processed project dataset to multi-format bundles",
     )
     export_parser.add_argument(
+        "--project",
+        "-p",
+        type=str,
+        required=False,
+        help="Path to an existing FideliChem project workspace",
+    )
+    export_parser.add_argument(
         "--output",
         "-o",
         type=str,
@@ -85,7 +92,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.subcommand == "probe":
         from fidelichem.adapters.registry import AdapterRegistry
 
-        registry = AdapterRegistry()
+        registry = AdapterRegistry.with_builtins()
         registry.discover_entry_points()
         adapter = registry.get(args.adapter) if args.adapter != "auto" else None
         in_path = Path(args.input)
@@ -110,21 +117,57 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.subcommand == "export":
+        if not args.project:
+            sys.stderr.write(
+                "Error: --project is required to export persisted evidence.\n"
+            )
+            return 2
         from fidelichem.exports.engine import ExportEngine
         from fidelichem.exports.models import ExportFormat, ExportOptions
+        from fidelichem.projects.service import open_project
 
-        engine = ExportEngine()
-        out_dir = Path(args.output)
+        try:
+            paths = open_project(Path(args.project), read_only=True)
+        except Exception:  # noqa: BLE001
+            sys.stderr.write(
+                "Error: project could not be opened; verify its manifest "
+                "and database.\n"
+            )
+            return 1
+
         fmt_names = [f.strip().lower() for f in args.formats.split(",")]
         fmts: list[ExportFormat] = []
         for fn in fmt_names:
             with contextlib.suppress(ValueError):
                 fmts.append(ExportFormat(fn))
-
         opts = ExportOptions(formats=tuple(fmts) if fmts else (ExportFormat.CSV,))
+
+        try:
+            if (
+                paths.engine is None
+                or paths.project_id is None
+                or paths.project is None
+            ):
+                sys.stderr.write("Error: project has no readable database.\n")
+                return 1
+            from fidelichem.storage.session import UnitOfWork
+
+            with UnitOfWork(paths.engine) as uow:
+                records = list(uow.evidence.list_export_records(paths.project_id))
+        finally:
+            paths.close()
+
+        if not records:
+            sys.stderr.write(
+                "Error: the project has no completed scientific evidence to export.\n"
+            )
+            return 1
+
+        engine = ExportEngine()
+        out_dir = Path(args.output)
         res = engine.export_dataset(
-            project_name="FideliChemExport",
-            records=[],
+            project_name=paths.project.name,
+            records=records,
             output_dir=out_dir,
             options=opts,
         )

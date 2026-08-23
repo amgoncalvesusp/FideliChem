@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape, quoteattr
 
 
 def export_to_csv(
@@ -88,12 +89,15 @@ def export_to_xlsx(
             ' xmlns:x="urn:schemas-microsoft-com:office:excel"',
             ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"',
             ' xmlns:html="http://www.w3.org/TR/REC-html40">',
-            f' <Worksheet ss:Name="{sheet_name}">',
+            f" <Worksheet ss:Name={quoteattr(sheet_name)}>",
             "  <Table>",
             "   <Row>",
         ]
         for h in headers:
-            xml_lines.append(f'    <Cell><Data ss:Type="String">{h}</Data></Cell>')
+            xml_lines.append(
+                '    <Cell><Data ss:Type="String">'
+                f"{escape(str(h))}</Data></Cell>"
+            )
         xml_lines.append("   </Row>")
         for row in data:
             xml_lines.append("   <Row>")
@@ -102,7 +106,8 @@ def export_to_xlsx(
                 val_str = "" if val is None else str(val)
                 val_type = "Number" if isinstance(val, (int, float)) else "String"
                 xml_lines.append(
-                    f'    <Cell><Data ss:Type="{val_type}">{val_str}</Data></Cell>'
+                    f'    <Cell><Data ss:Type="{val_type}">'
+                    f"{escape(val_str)}</Data></Cell>"
                 )
             xml_lines.append("   </Row>")
         xml_lines.extend(

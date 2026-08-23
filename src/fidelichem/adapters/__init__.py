@@ -5,6 +5,7 @@ from .base import (
     build_import_plan,
     compute_source_artifacts,
     scan_source_files,
+    verify_import_plan,
 )
 from .docklens import DockLensAdapter
 from .fake import FakeAdapter
@@ -30,4 +31,5 @@ __all__ = [
     "build_import_plan",
     "compute_source_artifacts",
     "scan_source_files",
+    "verify_import_plan",
 ]

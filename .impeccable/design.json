@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-22T00:00:00Z",
+  "title": "Design System: FideliChem Scientific Console",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {"role": "neutral", "displayName": "Midnight Canvas", "canonical": "#0B1220", "tonalRamp": ["#0B1220", "#111B2F", "#16243A", "#273750", "#385170", "#95A7C2", "#C8D6EA", "#EAF2FF"]},
+      "accent": {"role": "primary", "displayName": "Signal Turquoise", "canonical": "#5BE6C7", "tonalRamp": ["#173A3D", "#1E625B", "#278F7D", "#35B99D", "#5BE6C7", "#8FEED8", "#C4F8EC", "#E8FFFA"]},
+      "warning": {"role": "tertiary", "displayName": "Soft Amber", "canonical": "#FFCA7A", "tonalRamp": ["#4A2B10", "#744719", "#A56828", "#D28F42", "#FFCA7A", "#FFDBA3", "#FFEAC8", "#FFF6E8"]},
+      "danger": {"role": "secondary", "displayName": "Signal Coral", "canonical": "#FF7B88", "tonalRamp": ["#4A1822", "#741F2E", "#A52D3D", "#D14B5B", "#FF7B88", "#FFACB5", "#FFD0D5", "#FFF0F1"]}
+    },
+    "typographyMeta": {
+      "headline": {"displayName": "Console Headline", "purpose": "Page titles and analysis contexts."},
+      "body": {"displayName": "Evidence Body", "purpose": "Readable scientific values and explanatory copy."},
+      "label": {"displayName": "Section Label", "purpose": "Compact navigation and content grouping."}
+    },
+    "shadows": [],
+    "motion": [
+      {"name": "state-transition", "value": "Qt native state transition", "purpose": "Keep interaction feedback immediate and restrained."}
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single prominent action for a screen.",
+      "html": "<button class=\"ds-btn-primary\">EXECUTE IMPORT</button>",
+      "css": ".ds-btn-primary { background: #5BE6C7; color: #0B1220; padding: 0 14px; min-height: 32px; border: 1px solid #5BE6C7; border-radius: 8px; font-weight: 600; } .ds-btn-primary:hover, .ds-btn-primary:focus-visible { background: #35B99D; border-color: #35B99D; }"
+    },
+    {
+      "name": "Evidence Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "A dark, focused input well for paths and filters.",
+      "html": "<input class=\"ds-input\" placeholder=\"Evidence path\" />",
+      "css": ".ds-input { background: #0F192B; color: #EAF2FF; padding: 0 10px; min-height: 32px; border: 1px solid #273750; border-radius: 8px; } .ds-input:focus { border-color: #5BE6C7; }"
+    },
+    {
+      "name": "Active Navigation",
+      "kind": "nav",
+      "refersTo": "navigation-active",
+      "description": "The selected evidence workspace section.",
+      "html": "<nav class=\"ds-nav\"><span class=\"ds-nav-active\">COMPOUNDS</span></nav>",
+      "css": ".ds-nav { background: #111B2F; padding: 6px; } .ds-nav-active { display: block; background: #173A3D; color: #5BE6C7; padding: 10px 12px; border-radius: 8px; font-weight: 700; }"
+    },
+    {
+      "name": "Evidence Surface",
+      "kind": "card",
+      "description": "A flat, layered surface for data and diagnostics.",
+      "html": "<section class=\"ds-card\"><strong>QC STATUS</strong><p>All source hashes verified.</p></section>",
+      "css": ".ds-card { background: #16243A; color: #EAF2FF; padding: 16px; border: 1px solid #273750; border-radius: 8px; } .ds-card strong { color: #95A7C2; font-size: 11px; letter-spacing: 1px; } .ds-card p { margin: 8px 0 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Traceable Lab Console",
+    "overview": "FideliChem should feel like a well-kept instrument panel: quiet enough for careful reading, structured enough to expose the state of evidence, and deliberate about every action that can change a workspace. The interface uses tonal layers instead of decorative effects, with one restrained accent reserved for actions, focus, and trustworthy positive state.",
+    "keyCharacteristics": ["Layered midnight surfaces", "Turquoise action accent", "Compact rounded controls", "Explicit status language"],
+    "rules": [
+      {"name": "The One Signal Rule", "body": "The accent is reserved for an action, an active state, or a focus ring; it is not a decorative fill.", "section": "colors"},
+      {"name": "The Evidence First Rule", "body": "Use readable body text for scientific content; labels may be compact, but evidence is never reduced to ornamental microcopy.", "section": "typography"},
+      {"name": "The Flat-by-Default Rule", "body": "A surface is flat at rest; state changes are communicated by a border, tonal shift, or explicit status label.", "section": "elevation"}
+    ],
+    "dos": ["Do keep one shared stylesheet and token vocabulary for every view.", "Do expose loading, empty, disabled, warning, and error states in text.", "Do preserve native keyboard focus and accessible names on inputs."],
+    "donts": ["Don't add gradients, glassmorphism, decorative shadows, or noisy background art to analysis surfaces.", "Don't hide missing scientific evidence by replacing it with zero or a reassuring-looking placeholder.", "Don't put scientific rules or persistence calls inside view widgets."]
+  }
+}

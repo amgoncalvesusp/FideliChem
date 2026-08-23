@@ -28,16 +28,28 @@ class CompoundsView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(12)
 
-        title = QLabel("<h2>Compound Explorer</h2>", self)
+        title = QLabel("Compound explorer", self)
+        title.setObjectName("pageTitle")
         main_layout.addWidget(title)
+        subtitle = QLabel(
+            "Inspect identity, pose evidence, interactions and provenance "
+            "side by side.",
+            self,
+        )
+        subtitle.setObjectName("pageSubtitle")
+        main_layout.addWidget(subtitle)
 
         splitter = QSplitter(self)
 
         # Pane 1: Search & Table
         pane_left = QWidget(self)
         left_layout = QVBoxLayout(pane_left)
+        left_layout.setContentsMargins(0, 0, 6, 0)
         self.search_input = QLineEdit(pane_left)
+        self.search_input.setAccessibleName("Compound search")
         self.search_input.setPlaceholderText("Search compounds or SMILES...")
         left_layout.addWidget(self.search_input)
 
@@ -54,6 +66,7 @@ class CompoundsView(QWidget):
         # Pane 2: 2D info & Identity details
         pane_center = QWidget(self)
         center_layout = QVBoxLayout(pane_center)
+        center_layout.setContentsMargins(6, 0, 6, 0)
         center_layout.addWidget(QLabel("<b>Molecule Identity:</b>", pane_center))
         self.identity_text = QTextEdit(pane_center)
         self.identity_text.setReadOnly(True)
@@ -63,6 +76,7 @@ class CompoundsView(QWidget):
         # Pane 3: Evidence Tabs
         pane_right = QWidget(self)
         right_layout = QVBoxLayout(pane_right)
+        right_layout.setContentsMargins(6, 0, 0, 0)
         self.tabs = QTabWidget(pane_right)
 
         self.tab_chemistry = QTextEdit(self.tabs)

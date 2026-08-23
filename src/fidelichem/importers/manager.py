@@ -8,10 +8,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from fidelichem.adapters.base import verify_import_plan
 from fidelichem.adapters.registry import AdapterRegistry
 from fidelichem.chemistry.service import ChemistryService
 from fidelichem.domain.adapters import (
     DetectionReport,
+    DockingRunRecord,
+    ImportBundle,
     ImportPlan,
     ImportResult,
 )
@@ -107,7 +110,10 @@ class ImportManager:
         with self._uow_factory() as uow:
             self._duplicate_detector.assert_not_duplicate(uow, project_id, plan)
 
-        # 2. Parse bundle
+        # 2. Revalidate the immutable source boundary, then parse the bundle.
+        # Adapters perform the same check, but the manager owns the contract
+        # and protects custom adapters that implement the protocol directly.
+        verify_import_plan(plan)
         bundle = adapter.parse(plan)
 
         # 3. Validate bundle
@@ -143,80 +149,76 @@ class ImportManager:
                 confirmed_resolutions=(),
             )
 
-        # 5. Atomic persistence of batch, artifacts, identities, and audit trail
+        # 5. Atomic persistence of batch, identities, evidence, and audit
+        # trail.  A failed import is represented by a clean failed batch in a
+        # follow-up transaction; no partial artifacts or scientific rows leak.
         effective_actor = actor or IdentityActor(kind=ActorKind.SYSTEM)
         confirmed_resolutions: list[IdentityResolution] = []
+        planned_batch = ImportBatch(
+            project_id=project_id,
+            adapter_id=plan.adapter_id,
+            adapter_version=plan.adapter_version,
+            started_at=now,
+            source_root=plan.source_root,
+            file_count=len(bundle.source_artifacts),
+            input_hash=plan.plan_hash,
+            warnings=val_report.warnings,
+        )
 
         if active_failpoint:
             active_failpoint("before_batch_creation")
 
-        with self._uow_factory() as uow:
-            batch = uow.import_batches.add(
-                ImportBatch(
-                    project_id=project_id,
-                    adapter_id=plan.adapter_id,
-                    adapter_version=plan.adapter_version,
-                    started_at=now,
-                    source_root=plan.source_root,
-                    file_count=len(bundle.source_artifacts),
-                    input_hash=plan.plan_hash,
-                    warnings=val_report.warnings,
-                )
-            )
-
-            # Persist source artifacts
-            for artifact in bundle.source_artifacts:
-                uow.source_artifacts.add(
-                    SourceArtifact(
-                        import_batch_id=batch.id,
-                        path=f"{plan.source_root}/{artifact.relative_path}",
-                        relative_path=artifact.relative_path,
-                        sha256=artifact.sha256,
-                        file_type=artifact.file_type,
-                        size_bytes=artifact.size_bytes,
-                        mtime=artifact.mtime or now,
-                    )
-                )
-
+        batch = planned_batch
         try:
-            # 6. Resolve and confirm chemical identities for the active batch
-            index = self._identity_service._index_factory()
-            resolver = IdentityResolver()
+            with self._uow_factory() as uow:
+                self._identity_service.reserve_write(uow)
+                batch = uow.import_batches.add(planned_batch)
+                persisted_artifacts = self._persist_source_artifacts(
+                    uow, bundle, batch.id, plan, now
+                )
 
-            for compound in bundle.compounds:
-                canon_result: CanonicalizationResult | None = None
-                if compound.source_smiles:
-                    canon_result = self._chemistry_service.canonicalize(
-                        compound.source_smiles,
-                        preparation_ph=compound.preparation_ph,
-                        created_at=now,
+                # Resolve and confirm chemical identities for the active batch.
+                index = self._identity_service._index_factory()
+                resolver = IdentityResolver()
+                for compound in bundle.compounds:
+                    canon_result: CanonicalizationResult | None = None
+                    if compound.source_smiles:
+                        canon_result = self._chemistry_service.canonicalize(
+                            compound.source_smiles,
+                            preparation_ph=compound.preparation_ph,
+                            created_at=now,
+                        )
+
+                    claim = IdentityClaim(
+                        source_system=compound.source_system,
+                        source_value=compound.source_value,
+                        smiles=compound.source_smiles,
+                        inchikey=compound.source_inchikey,
+                        import_batch_id=batch.id,
+                    )
+                    report = resolver.resolve(canon_result, claim, index)
+                    selection = self._determine_selection(report)
+                    confirmed_resolutions.append(
+                        self._identity_service.confirm_claim(
+                            canon_result,
+                            claim,
+                            report,
+                            selection,
+                            effective_actor,
+                            uow=uow,
+                        )
                     )
 
-                claim = IdentityClaim(
-                    source_system=compound.source_system,
-                    source_value=compound.source_value,
-                    smiles=compound.source_smiles,
-                    inchikey=compound.source_inchikey,
-                    import_batch_id=batch.id,
+                self._persist_bundle_evidence(
+                    uow,
+                    bundle,
+                    batch_id=batch.id,
+                    artifact_ids=persisted_artifacts,
                 )
 
-                report = resolver.resolve(canon_result, claim, index)
-                selection = self._determine_selection(report)
+                if active_failpoint:
+                    active_failpoint("before_batch_completion")
 
-                resolution = self._identity_service.confirm_claim(
-                    canon_result,
-                    claim,
-                    report,
-                    selection,
-                    effective_actor,
-                )
-                confirmed_resolutions.append(resolution)
-
-            if active_failpoint:
-                active_failpoint("before_batch_completion")
-
-            # 7. Complete batch and write audit event
-            with self._uow_factory() as uow:
                 completed_batch = uow.import_batches.complete(
                     batch.id, completed_at=now
                 )
@@ -233,6 +235,13 @@ class ImportManager:
                                 "adapter_version": plan.adapter_version,
                                 "file_count": len(bundle.source_artifacts),
                                 "compounds_count": len(bundle.compounds),
+                                "targets_count": len(bundle.targets),
+                                "docking_runs_count": len(bundle.docking_runs),
+                                "poses_count": len(bundle.poses),
+                                "scores_count": len(bundle.scores),
+                                "interactions_count": len(bundle.interactions),
+                                "md_runs_count": len(bundle.md_runs),
+                                "md_metrics_count": len(bundle.md_metrics),
                                 "plan_hash": plan.plan_hash,
                             }
                         ),
@@ -242,15 +251,25 @@ class ImportManager:
                     )
                 )
         except BaseException as exc:
+            # The main UnitOfWork has already rolled back all rows.  Keep a
+            # clean lifecycle marker for operators without retaining partial
+            # source artifacts, identities, or scientific evidence.
             with self._uow_factory() as uow:
-                uow.import_batches.fail(batch.id, completed_at=now)
+                failed_batch = uow.import_batches.add(
+                    planned_batch.model_copy(
+                        update={
+                            "status": ImportStatus.FAILED,
+                            "completed_at": now,
+                        }
+                    )
+                )
                 uow.audit_events.add(
                     AuditEvent(
                         timestamp=now,
                         action="import.failed",
                         entity_type="import_batch",
-                        entity_id=batch.id,
-                        import_batch_id=batch.id,
+                        entity_id=failed_batch.id,
+                        import_batch_id=failed_batch.id,
                         new_value_json=canonical_json(
                             {
                                 "error": type(exc).__name__,
@@ -270,6 +289,164 @@ class ImportManager:
             validation=val_report,
             confirmed_resolutions=tuple(confirmed_resolutions),
         )
+
+    def _persist_source_artifacts(
+        self,
+        uow: UnitOfWork,
+        bundle: ImportBundle,
+        batch_id: str,
+        plan: ImportPlan,
+        now: datetime,
+    ) -> dict[str, str]:
+        """Persist source metadata and return relative-path to row IDs."""
+
+        artifact_ids: dict[str, str] = {}
+        for artifact in bundle.source_artifacts:
+            stored = uow.source_artifacts.add(
+                SourceArtifact(
+                    import_batch_id=batch_id,
+                    path=f"{plan.source_root}/{artifact.relative_path}",
+                    relative_path=artifact.relative_path,
+                    sha256=artifact.sha256,
+                    file_type=artifact.file_type,
+                    size_bytes=artifact.size_bytes,
+                    mtime=artifact.mtime or now,
+                )
+            )
+            artifact_ids[stored.relative_path] = stored.id
+        return artifact_ids
+
+    def _persist_bundle_evidence(
+        self,
+        uow: UnitOfWork,
+        bundle: ImportBundle,
+        *,
+        batch_id: str,
+        artifact_ids: Mapping[str, str],
+    ) -> None:
+        """Persist every canonical evidence family in dependency order."""
+
+        target_ids: dict[str, str] = {}
+        for target_record in bundle.targets:
+            target_ids[target_record.name] = uow.evidence.add_target(
+                target_record,
+                import_batch_id=batch_id,
+            )
+
+        docking_run_ids: dict[str, str] = {}
+        for docking_record in bundle.docking_runs:
+            docking_run_ids[docking_record.run_name] = uow.evidence.add_docking_run(
+                docking_record,
+                import_batch_id=batch_id,
+                target_id=target_ids.get(docking_record.target_name or ""),
+            )
+
+        # Some producers emit poses/scores without a separate run record.  Do
+        # not discard those observations: persist an explicit, traceable
+        # placeholder run rather than guessing an engine or configuration.
+        orphan_run_names = {pose.run_name for pose in bundle.poses}
+        orphan_run_names.update(score.run_name for score in bundle.scores)
+        orphan_run_names.difference_update(docking_run_ids)
+        for orphan_run_name in sorted(orphan_run_names):
+            docking_run_ids[orphan_run_name] = uow.evidence.add_docking_run(
+                DockingRunRecord(
+                    run_name=orphan_run_name,
+                    engine="UNSPECIFIED",
+                    parameters={"implicit": True},
+                ),
+                import_batch_id=batch_id,
+            )
+
+        pose_ids: dict[tuple[str, str], str] = {}
+        for pose_record in bundle.poses:
+            run_id = docking_run_ids.get(pose_record.run_name)
+            if run_id is None:
+                raise ValueError(
+                    f"Pose '{pose_record.source_pose_id}' references an unknown "
+                    f"docking run '{pose_record.run_name}'"
+                )
+            pose_ids[
+                (pose_record.run_name, pose_record.source_pose_id)
+            ] = uow.evidence.add_pose(
+                pose_record,
+                import_batch_id=batch_id,
+                docking_run_id=run_id,
+                source_artifact_id=self._artifact_id(
+                    artifact_ids, pose_record.structure_artifact_path
+                ),
+            )
+
+        for score_record in bundle.scores:
+            run_id = docking_run_ids.get(score_record.run_name)
+            if run_id is None:
+                raise ValueError(
+                    f"Score '{score_record.score_key}' references an unknown "
+                    f"docking run '{score_record.run_name}'"
+                )
+            uow.evidence.add_score(
+                score_record,
+                import_batch_id=batch_id,
+                docking_run_id=run_id,
+                pose_id=pose_ids.get(
+                    (score_record.run_name, score_record.source_pose_id)
+                ),
+                source_artifact_id=self._artifact_id(
+                    artifact_ids, score_record.source_artifact_path
+                ),
+            )
+
+        for interaction_record in bundle.interactions:
+            uow.evidence.add_interaction(
+                interaction_record,
+                import_batch_id=batch_id,
+                docking_run_id=docking_run_ids.get(interaction_record.run_name),
+                pose_id=pose_ids.get(
+                    (interaction_record.run_name, interaction_record.source_pose_id)
+                ),
+                target_id=target_ids.get(interaction_record.target_name or ""),
+                source_artifact_id=None,
+            )
+
+        md_run_ids: dict[str, str] = {}
+        for md_run_record in bundle.md_runs:
+            md_run_ids[md_run_record.run_name] = uow.evidence.add_md_run(
+                md_run_record,
+                import_batch_id=batch_id,
+                target_id=target_ids.get(md_run_record.target_name or ""),
+                pose_id=pose_ids.get(
+                    (md_run_record.run_name, md_run_record.source_pose_id or "")
+                ),
+            )
+
+        for metric_record in bundle.md_metrics:
+            md_run_id = md_run_ids.get(metric_record.run_name)
+            if md_run_id is None:
+                raise ValueError(
+                    f"MD metric '{metric_record.metric_key}' references an unknown "
+                    f"run '{metric_record.run_name}'"
+                )
+            uow.evidence.add_md_metric(
+                metric_record,
+                import_batch_id=batch_id,
+                md_run_id=md_run_id,
+                source_artifact_id=self._artifact_id(
+                    artifact_ids, metric_record.source_artifact_path
+                ),
+            )
+
+    @staticmethod
+    def _artifact_id(
+        artifact_ids: Mapping[str, str], relative_path: str | None
+    ) -> str | None:
+        if relative_path is None:
+            return None
+        artifact_id = artifact_ids.get(relative_path)
+        if artifact_id is None:
+            raise ValueError(
+                f"Evidence references source artifact '{relative_path}' "
+                "outside the import plan"
+            )
+        return artifact_id
 
     def rollback_import(
         self,

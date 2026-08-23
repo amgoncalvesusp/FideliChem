@@ -20,9 +20,17 @@ class DynamicsView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
-        title = QLabel("<h2>Molecular Dynamics Analytics</h2>", self)
+        title = QLabel("Molecular dynamics analytics", self)
+        title.setObjectName("pageTitle")
         layout.addWidget(title)
+        subtitle = QLabel(
+            "Review trajectory summaries while keeping missing values explicit.", self
+        )
+        subtitle.setObjectName("pageSubtitle")
+        layout.addWidget(subtitle)
 
         self.table = QTableWidget(self)
         self.table.setColumnCount(5)

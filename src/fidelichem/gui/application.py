@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from fidelichem.app.logging import configure_logging
+from fidelichem.gui.icon import load_app_icon
 from fidelichem.gui.main_window import MainWindow
 
 _STARTUP_FAILURE_MESSAGE = (
@@ -34,6 +35,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         logger = configure_logging()
         application = create_application(argv)
+        application.setWindowIcon(load_app_icon())
         window = MainWindow()
         window.show()
         logger.info("FideliChem application started")

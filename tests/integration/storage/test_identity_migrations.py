@@ -138,7 +138,7 @@ def test_upgrade_from_0001_preserves_rows_and_is_repeatable(tmp_path: Path) -> N
     upgrade_database(engine)
     upgrade_database(engine)
     with engine.connect() as connection:
-        assert current_revision(engine) == "0002_chemistry_identity"
+        assert current_revision(engine) == "0003_evidence"
         assert (
             connection.scalar(
                 text("SELECT name FROM project WHERE id=:id"), {"id": PROJECT}
@@ -177,7 +177,7 @@ def test_downgrade_removes_identity_tables_and_read_only_reopen_is_safe(
     upgrade_database(engine)
     engine.dispose()
     readonly = create_sqlite_engine(tmp_path / "downgrade.sqlite", read_only=True)
-    assert current_revision(readonly) == "0002_chemistry_identity"
+    assert current_revision(readonly) == "0003_evidence"
     readonly.dispose()
 
 

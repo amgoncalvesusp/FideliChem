@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from fidelichem.adapters.table.readers import (
     detect_delimiter,
@@ -151,6 +153,58 @@ def test_read_table_records_skip_rows_comments_and_no_headers(tmp_path: Path) ->
     assert records[0]["col_2"] == "CCO"
     assert records[0]["col_3"] == "-5.2"
     assert records[1]["col_1"] == "L2"
+
+
+def test_read_and_preview_legacy_xls_through_xlrd_boundary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class FakeSheet:
+        name = "Scores"
+        nrows = 3
+
+        @staticmethod
+        def row_values(index: int) -> list[object]:
+            return [
+                ["id", "score"],
+                ["L1", -7.2],
+                ["L2", None],
+            ][index]
+
+    class FakeWorkbook:
+        sheet_names = ["Scores"]
+
+        @staticmethod
+        def sheet_by_name(name: str) -> FakeSheet:
+            assert name == "Scores"
+            return FakeSheet()
+
+        @staticmethod
+        def sheet_by_index(index: int) -> FakeSheet:
+            assert index == 0
+            return FakeSheet()
+
+        @staticmethod
+        def release_resources() -> None:
+            return None
+
+    fake_xlrd = SimpleNamespace(
+        open_workbook=lambda filename, on_demand: FakeWorkbook(),
+    )
+    monkeypatch.setitem(sys.modules, "xlrd", fake_xlrd)
+
+    xls_file = tmp_path / "legacy.xls"
+    xls_file.write_bytes(b"BIFF fixture boundary")
+    schema = TableMappingSchema(sheet_name="Scores")
+
+    records = list(read_table_records(xls_file, schema))
+    assert records == [
+        {"id": "L1", "score": -7.2},
+        {"id": "L2", "score": None},
+    ]
+    headers, rows = preview_table(xls_file, sheet_name="Scores")
+    assert headers == ("id", "score")
+    assert rows == (("L1", -7.2), ("L2", None))
 
 
 def test_read_table_records_json_and_jsonl(tmp_path: Path) -> None:

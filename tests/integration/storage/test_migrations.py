@@ -114,6 +114,13 @@ def test_blank_database_migrates_to_head_and_has_expected_objects(
         "molecular_state",
         "project",
         "source_artifact",
+        "evidence_target",
+        "docking_run",
+        "pose",
+        "score_observation",
+        "interaction",
+        "md_run",
+        "md_metric",
     }
     assert inspector.get_indexes("import_batch")
     assert inspector.get_indexes("source_artifact")
@@ -146,6 +153,20 @@ def test_blank_database_migrates_to_head_and_has_expected_objects(
         "trg_identity_resolution_validate_insert",
         "trg_identity_resolution_no_update",
         "trg_identity_resolution_no_delete",
+        "trg_evidence_target_immutable",
+        "trg_evidence_target_no_delete",
+        "trg_docking_run_immutable",
+        "trg_docking_run_no_delete",
+        "trg_pose_immutable",
+        "trg_pose_no_delete",
+        "trg_score_observation_immutable",
+        "trg_score_observation_no_delete",
+        "trg_interaction_immutable",
+        "trg_interaction_no_delete",
+        "trg_md_run_immutable",
+        "trg_md_run_no_delete",
+        "trg_md_metric_immutable",
+        "trg_md_metric_no_delete",
     }.issubset(trigger_names)
     engine.dispose()
 

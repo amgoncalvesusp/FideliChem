@@ -5,6 +5,12 @@ platform. The current foundation includes persistent, portable project roots,
 immutable provenance records, transactional storage, and audited import-batch
 lifecycle operations. Scientific adapters are added in later phases.
 
+Author: Adriano Marques Gonçalves (UNIARA)
+
+The FideliChem source code is available under the MIT License. Third-party
+runtime components retain their own licenses; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 ## Requirements
 
 - Python 3.12
@@ -30,6 +36,25 @@ uv run pip-audit
 uv build
 uv pip check
 ```
+
+## First release installers
+
+The first tagged release publishes self-contained desktop installers for
+Windows and Linux. Download the matching asset from the GitHub release page
+and verify it before running it with `SHA256SUMS.txt`.
+
+- Windows installer: run `FideliChem-0.1.0-Windows-x64-Setup.exe` to install
+  shortcuts and an uninstall entry.
+- Windows portable: extract `FideliChem-0.1.0-Windows-x64.zip` and run
+  `FideliChem.exe`.
+- Linux portable: extract `FideliChem-0.1.0-Linux-x64.tar.gz` and run
+  `./FideliChem/FideliChem`.
+- Debian/Ubuntu: install `FideliChem-0.1.0-Linux-x64.deb` with
+  `sudo dpkg -i FideliChem-0.1.0-Linux-x64.deb`, then launch
+  `fidelichem-gui`.
+
+The release also includes the Python wheel and source distribution for
+development installations.
 
 ## Persistent projects
 

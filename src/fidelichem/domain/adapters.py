@@ -28,6 +28,28 @@ from fidelichem.domain.models import (
 )
 
 
+def _validate_finite_values(
+    value: float | None,
+    *,
+    field_name: str,
+) -> float | None:
+    """Reject non-finite measurements at the canonical model boundary."""
+    if value is not None and not math.isfinite(value):
+        raise ValueError(f"{field_name} must be a finite float")
+    return value
+
+
+def _validate_finite_sequence(
+    value: tuple[float, ...],
+    *,
+    field_name: str,
+) -> tuple[float, ...]:
+    """Reject NaN/Inf values in a time-series observation."""
+    if any(not math.isfinite(item) for item in value):
+        raise ValueError(f"{field_name} must contain only finite floats")
+    return value
+
+
 class QCSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
@@ -244,6 +266,13 @@ class InteractionRecord(DomainModel):
         "interaction_type",
     )(_non_blank)
 
+    @field_validator("distance", "angle", "energy", "frequency")
+    @classmethod
+    def _validate_finite_measurement(
+        cls, value: float | None, info: Any
+    ) -> float | None:
+        return _validate_finite_values(value, field_name=info.field_name)
+
     @property
     def interaction_key(self) -> str:
         """Standard canonical interaction key (target|residue|type)."""
@@ -274,6 +303,13 @@ class MDRunRecord(DomainModel):
 
     _run_name_not_blank = field_validator("run_name")(_non_blank)
 
+    @field_validator("duration_ns", "temperature_k", "timestep_fs")
+    @classmethod
+    def _validate_finite_measurement(
+        cls, value: float | None, info: Any
+    ) -> float | None:
+        return _validate_finite_values(value, field_name=info.field_name)
+
 
 class MDMetricRecord(DomainModel):
     """Canonical summary and time-series observation of an MD analytical metric."""
@@ -293,6 +329,20 @@ class MDMetricRecord(DomainModel):
     metadata: Mapping[str, Any] = Field(default_factory=dict)
 
     _fields_not_blank = field_validator("run_name", "metric_key")(_non_blank)
+
+    @field_validator("mean_value", "std_value", "min_value", "max_value")
+    @classmethod
+    def _validate_finite_summary(
+        cls, value: float | None, info: Any
+    ) -> float | None:
+        return _validate_finite_values(value, field_name=info.field_name)
+
+    @field_validator("time_points", "values")
+    @classmethod
+    def _validate_finite_series(
+        cls, value: tuple[float, ...], info: Any
+    ) -> tuple[float, ...]:
+        return _validate_finite_sequence(value, field_name=info.field_name)
 
 
 class ImportBundle(DomainModel):

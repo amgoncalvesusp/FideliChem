@@ -14,6 +14,7 @@ from fidelichem.adapters.base import (
     build_import_plan,
     compute_source_artifacts,
     scan_source_files,
+    verify_import_plan,
 )
 from fidelichem.adapters.table.readers import detect_delimiter
 from fidelichem.domain.adapters import (
@@ -128,6 +129,7 @@ class DockLensAdapter:
 
     def parse(self, plan: ImportPlan) -> ImportBundle:
         """Parse mechanistic interactions and contact profiles."""
+        verify_import_plan(plan)
         source_root = Path(plan.source_root)
         source_artifacts: list[SourceArtifactRecord] = []
         qc_messages: list[QCIssue] = []

@@ -7,6 +7,7 @@ from .chemistry_repositories import (
     MolecularStateRepository,
 )
 from .engine import create_sqlite_engine
+from .evidence_repositories import EvidenceRepository
 from .runner import (
     MigrationError,
     assert_database_current,
@@ -18,6 +19,7 @@ from .runner import (
 __all__ = [
     "MigrationError",
     "AliasRepository",
+    "EvidenceRepository",
     "CompoundRepository",
     "IdentityResolutionRepository",
     "MolecularStateRepository",

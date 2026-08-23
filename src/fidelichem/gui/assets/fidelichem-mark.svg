@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">FideliChem mark</title>
+  <desc id="desc">Three molecular orbits around a verified evidence core.</desc>
+  <rect x="12" y="12" width="232" height="232" rx="50" fill="#0B1220" stroke="#385170" stroke-width="8"/>
+  <rect x="30" y="30" width="196" height="196" rx="36" fill="#111B2F"/>
+
+  <g fill="none" stroke-linecap="round">
+    <ellipse cx="128" cy="128" rx="76" ry="34" stroke="#EAF2FF" stroke-width="10"/>
+    <ellipse cx="128" cy="128" rx="76" ry="34" transform="rotate(60 128 128)" stroke="#5BE6C7" stroke-width="10"/>
+    <ellipse cx="128" cy="128" rx="76" ry="34" transform="rotate(-60 128 128)" stroke="#EAF2FF" stroke-width="10"/>
+  </g>
+
+  <circle cx="54" cy="128" r="13" fill="#16243A" stroke="#5BE6C7" stroke-width="7"/>
+  <circle cx="165" cy="64" r="13" fill="#16243A" stroke="#5BE6C7" stroke-width="7"/>
+  <circle cx="165" cy="192" r="13" fill="#16243A" stroke="#5BE6C7" stroke-width="7"/>
+
+  <circle cx="128" cy="128" r="31" fill="#173A3D" stroke="#5BE6C7" stroke-width="8"/>
+  <path d="m111 128 12 12 23-27" fill="none" stroke="#0B1220" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

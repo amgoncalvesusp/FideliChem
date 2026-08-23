@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         IdentityResolutionRepository,
         MolecularStateRepository,
     )
+    from .evidence_repositories import EvidenceRepository
     from .repositories import (
         AuditRepository,
         ImportBatchRepository,
@@ -90,6 +91,7 @@ class UnitOfWork:
         import_batches: ImportBatchRepository
         source_artifacts: SourceArtifactRepository
         audit_events: AuditRepository
+        evidence: EvidenceRepository
 
     @property
     def session(self) -> Session:
@@ -129,6 +131,7 @@ class UnitOfWork:
             IdentityResolutionRepository,
             MolecularStateRepository,
         )
+        from .evidence_repositories import EvidenceRepository
         from .repositories import (
             AuditRepository,
             ImportBatchRepository,
@@ -145,6 +148,7 @@ class UnitOfWork:
         self.molecular_states = MolecularStateRepository(session)
         self.aliases = AliasRepository(session)
         self.identity_resolutions = IdentityResolutionRepository(session)
+        self.evidence = EvidenceRepository(session)
         self._repositories = (
             self.projects,
             self.import_batches,
@@ -154,6 +158,7 @@ class UnitOfWork:
             self.molecular_states,
             self.aliases,
             self.identity_resolutions,
+            self.evidence,
         )
 
     def __exit__(

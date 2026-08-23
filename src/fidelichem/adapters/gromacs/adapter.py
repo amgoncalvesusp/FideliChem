@@ -12,6 +12,7 @@ from fidelichem.adapters.base import (
     build_import_plan,
     compute_source_artifacts,
     scan_source_files,
+    verify_import_plan,
 )
 from fidelichem.domain.adapters import (
     DetectionReport,
@@ -108,6 +109,7 @@ class GromacsAdapter:
 
     def parse(self, plan: ImportPlan) -> ImportBundle:
         """Parse XVG curves and MD metrics from GROMACS analytical files."""
+        verify_import_plan(plan)
         source_root = Path(plan.source_root)
         source_artifacts: list[SourceArtifactRecord] = []
         qc_messages: list[QCIssue] = []
