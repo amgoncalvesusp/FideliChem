@@ -167,6 +167,22 @@ class Smiles2DockingAdapter:
             "*.sdf",
         )
         matches = scan_source_files(source, patterns=patterns)
+        # A user commonly selects only ``prepared_ligands.mol2`` from the
+        # file picker.  SMILES2Docking exports the identity mapping in a
+        # sibling run report, so include those descriptors automatically when
+        # probing an individual structure file.  This keeps the simple
+        # one-file workflow equivalent to selecting the whole run folder.
+        if source.is_file() and source.suffix.lower() in {".mol2", ".sdf"}:
+            sibling_descriptors = scan_source_files(
+                source.parent,
+                patterns=(
+                    "*smiles2docking*.json",
+                    "run.json",
+                    "manifest.json",
+                    "run_report*.json",
+                ),
+            )
+            matches = tuple(sorted(set(matches).union(sibling_descriptors)))
         match_names = [f.as_posix() for f in matches]
 
         json_descriptors = [

@@ -91,6 +91,10 @@ class ImportView(QWidget):
         self.preview_text = QTextEdit(self)
         self.preview_text.setReadOnly(True)
         self.preview_text.setObjectName("importPreviewText")
+        self.preview_text.setPlaceholderText(
+            "Choose a source and click Probe Data. Open or create a project in "
+            "Project to enable Execute Import."
+        )
         layout.addWidget(self.preview_text)
         self._workspace_ready = False
         self._sync_action_state(self.path_input.text())
@@ -134,7 +138,7 @@ class ImportView(QWidget):
     def _on_import_clicked(self) -> None:
         adapter = self.adapter_combo.currentText()
         path = self.path_input.text().strip()
-        if path:
+        if path and self._workspace_ready:
             self.import_requested.emit(adapter, path)
 
     def set_probe_preview(self, preview_summary: str) -> None:

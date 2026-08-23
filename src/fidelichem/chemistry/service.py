@@ -433,17 +433,27 @@ class ChemistryService:
                     sanitize=False,
                     removeHs=False,
                 )
+                if molecule is not None:
+                    molecule = Chem.RemoveHs(molecule, sanitize=False)
+                    for atom in molecule.GetAtoms():
+                        atom_type = (
+                            atom.GetProp("_TriposAtomType")
+                            if atom.HasProp("_TriposAtomType")
+                            else ""
+                        )
+                        if atom_type.startswith("N.4") and atom.GetFormalCharge() == 0:
+                            atom.SetFormalCharge(1)
+                    candidate = Chem.MolToSmiles(molecule, isomericSmiles=True)
+                    if candidate and Chem.MolFromSmiles(candidate) is not None:
+                        return cast(str, candidate)
+
+                # Some MOPAC/OpenBabel exports contain valid MOL2 sections but
+                # metadata that RDKit's native reader rejects.  Rebuild the
+                # graph from the standard ATOM/BOND sections without trusting
+                # partial charges as formal charges.
+                molecule = _mol2_graph(block)
                 if molecule is None:
                     return None
-                molecule = Chem.RemoveHs(molecule, sanitize=False)
-                for atom in molecule.GetAtoms():
-                    atom_type = (
-                        atom.GetProp("_TriposAtomType")
-                        if atom.HasProp("_TriposAtomType")
-                        else ""
-                    )
-                    if atom_type.startswith("N.4") and atom.GetFormalCharge() == 0:
-                        atom.SetFormalCharge(1)
                 candidate = Chem.MolToSmiles(molecule, isomericSmiles=True)
                 if not candidate or Chem.MolFromSmiles(candidate) is None:
                     return None
@@ -467,3 +477,107 @@ class ChemistryService:
 
 
 __all__ = ["ChemistryService"]
+
+
+def _mol2_graph(block: str) -> Any | None:
+    """Build a sanitized RDKit graph from conservative MOL2 primitives."""
+    lines = block.splitlines()
+    try:
+        atom_start = next(
+            index
+            for index, line in enumerate(lines)
+            if line.strip().upper() == "@<TRIPOS>ATOM"
+        )
+        bond_start = next(
+            index
+            for index, line in enumerate(lines)
+            if line.strip().upper() == "@<TRIPOS>BOND"
+        )
+    except StopIteration:
+        return None
+
+    def section_end(start: int) -> int:
+        return next(
+            (
+                index
+                for index in range(start + 1, len(lines))
+                if lines[index].strip().upper().startswith("@<TRIPOS>")
+            ),
+            len(lines),
+        )
+
+    atom_end = bond_start
+    bond_end = section_end(bond_start)
+    atom_index: dict[int, int] = {}
+    rw_mol = Chem.RWMol()
+    valid_elements = {
+        "B",
+        "C",
+        "N",
+        "O",
+        "F",
+        "P",
+        "S",
+        "Cl",
+        "Br",
+        "I",
+        "Si",
+        "Na",
+        "Mg",
+        "Ca",
+        "Fe",
+        "Zn",
+        "H",
+    }
+
+    try:
+        for line in lines[atom_start + 1 : atom_end]:
+            tokens = line.split()
+            if len(tokens) < 6:
+                continue
+            atom_id = int(tokens[0])
+            atom_type = tokens[5].split(".", 1)[0]
+            element = atom_type[:1].upper() + atom_type[1:].lower()
+            if element not in valid_elements:
+                atom_name = tokens[1]
+                element = atom_name[:1].upper() + atom_name[1:].lower()
+            if element not in valid_elements:
+                return None
+            atom = Chem.Atom(element)
+            lowered_type = tokens[5].lower()
+            if lowered_type.startswith("n.4"):
+                atom.SetFormalCharge(1)
+            atom_index[atom_id] = rw_mol.AddAtom(atom)
+
+        if not atom_index or len(atom_index) > _MAX_ATOMS:
+            return None
+
+        bond_types = {
+            "1": Chem.BondType.SINGLE,
+            "2": Chem.BondType.DOUBLE,
+            "3": Chem.BondType.TRIPLE,
+            "ar": Chem.BondType.AROMATIC,
+            "am": Chem.BondType.AROMATIC,
+        }
+        aromatic_atoms: set[int] = set()
+        for line in lines[bond_start + 1 : bond_end]:
+            tokens = line.split()
+            if len(tokens) < 4:
+                continue
+            begin = atom_index.get(int(tokens[1]))
+            end = atom_index.get(int(tokens[2]))
+            bond_type = tokens[3].lower()
+            if begin is None or end is None or bond_type not in bond_types:
+                continue
+            rw_mol.AddBond(begin, end, bond_types[bond_type])
+            if bond_type in {"ar", "am"}:
+                aromatic_atoms.update((begin, end))
+
+        molecule = rw_mol.GetMol()
+        for atom_number in aromatic_atoms:
+            molecule.GetAtomWithIdx(atom_number).SetIsAromatic(True)
+        Chem.SanitizeMol(molecule)
+        molecule = Chem.RemoveHs(molecule, sanitize=False)
+        return molecule
+    except (RuntimeError, ValueError, TypeError):
+        return None

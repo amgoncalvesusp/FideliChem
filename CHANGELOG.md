@@ -17,6 +17,9 @@ All notable changes to FideliChem will be documented in this file.
 - Added SMILES2Docking MOL2 parsing with source-XLSX identity recovery for
   generated stereoisomer names and clear QC diagnostics when identity is
   unavailable.
+- Selecting a single SMILES2Docking `.mol2` now discovers adjacent run reports
+  automatically, and MOPAC/OpenBabel MOL2 graphs receive a chemistry-boundary
+  fallback when the native RDKit reader cannot interpret their metadata.
 - Import failures now include a concise diagnostic in the preview/status bar
   and the full exception is recorded through the application logger.
 

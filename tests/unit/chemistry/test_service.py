@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import fidelichem.chemistry.service as chemistry_service
 from fidelichem.chemistry import ChemistryService
 from fidelichem.chemistry.policy import ChemistryPolicy
 from fidelichem.domain.chemistry import ChemistryWarningCode
@@ -45,6 +46,31 @@ def test_atom_maps_are_not_identity(service: ChemistryService) -> None:
     assert mapped.compound.structure_hash == unmapped.compound.structure_hash
     assert mapped.source_smiles == "[CH3:7][CH2:2][OH:99]"
     assert ":" not in mapped.molecular_state.state_smiles
+
+
+def test_mol2_smiles_falls_back_to_tripos_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read MOPAC-style MOL2 when RDKit rejects the metadata."""
+    block = (
+        "@<TRIPOS>MOLECULE\n"
+        "ETHANOL\n"
+        " 3 2 0 0 0\n"
+        "SMALL\nNO_CHARGES\n\n"
+        "@<TRIPOS>ATOM\n"
+        " 1 C1 0.0 0.0 0.0 C.3 1 LIG 0.0\n"
+        " 2 C2 1.5 0.0 0.0 C.3 1 LIG 0.0\n"
+        " 3 O3 2.5 0.0 0.0 O.3 1 LIG 0.0\n"
+        "@<TRIPOS>BOND\n"
+        " 1 1 2 1\n"
+        " 2 2 3 1\n"
+    )
+    monkeypatch.setattr(
+        chemistry_service.Chem,
+        "MolFromMol2Block",
+        lambda *args, **kwargs: None,
+    )
+    assert ChemistryService.derive_smiles_from_mol2_block(block) == "CCO"
 
 
 def test_service_policy_binding_is_read_only(service: ChemistryService) -> None:
