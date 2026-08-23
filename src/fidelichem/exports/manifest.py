@@ -32,7 +32,7 @@ def create_export_manifest(
     parameters: Mapping[str, Any] | None = None,
 ) -> ExportManifest:
     """Generate an ExportManifest with SHA-256 digests for all files."""
-    version = getattr(fidelichem, "__version__", "0.1.0")
+    version = getattr(fidelichem, "__version__", "0.1.1")
     file_records: list[FileHashRecord] = []
 
     for file_path in export_files:

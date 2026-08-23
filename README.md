@@ -37,20 +37,20 @@ uv build
 uv pip check
 ```
 
-## First release installers
+## Release installers (v0.1.1)
 
-The first tagged release publishes self-contained desktop installers for
-Windows and Linux. Download the matching asset from the GitHub release page
+Each tagged release publishes self-contained desktop installers for Windows
+and Linux. Download the matching asset from the GitHub release page
 and verify it before running it with `SHA256SUMS.txt`.
 
-- Windows installer: run `FideliChem-0.1.0-Windows-x64-Setup.exe` to install
+- Windows installer: run `FideliChem-0.1.1-Windows-x64-Setup.exe` to install
   shortcuts and an uninstall entry.
-- Windows portable: extract `FideliChem-0.1.0-Windows-x64.zip` and run
+- Windows portable: extract `FideliChem-0.1.1-Windows-x64.zip` and run
   `FideliChem.exe`.
-- Linux portable: extract `FideliChem-0.1.0-Linux-x64.tar.gz` and run
+- Linux portable: extract `FideliChem-0.1.1-Linux-x64.tar.gz` and run
   `./FideliChem/FideliChem`.
-- Debian/Ubuntu: install `FideliChem-0.1.0-Linux-x64.deb` with
-  `sudo dpkg -i FideliChem-0.1.0-Linux-x64.deb`, then launch
+- Debian/Ubuntu: install `FideliChem-0.1.1-Linux-x64.deb` with
+  `sudo dpkg -i FideliChem-0.1.1-Linux-x64.deb`, then launch
   `fidelichem-gui`.
 
 The release also includes the Python wheel and source distribution for

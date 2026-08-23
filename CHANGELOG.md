@@ -2,6 +2,14 @@
 
 All notable changes to FideliChem will be documented in this file.
 
+## 0.1.1 - 2026-08-23
+
+### Fixed
+
+- Activated native folder and file choosers in the project, evidence import,
+  and export views.
+- Added evidence file filters for CSV, TSV, JSON, JSONL, XLSX, XLS, and MOL2.
+
 ## 0.1.0 - 2026-08-23
 
 ### Added

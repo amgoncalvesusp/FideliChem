@@ -18,7 +18,7 @@ def generate_methods_report(
     """Generate a structured Markdown methods report for audit and reproducibility."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-    version = getattr(fidelichem, "__version__", "0.1.0")
+    version = getattr(fidelichem, "__version__", "0.1.1")
 
     lines = [
         "# FideliChem — Methods & Reproducibility Report",

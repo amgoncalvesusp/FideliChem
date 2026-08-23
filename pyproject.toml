@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fidelichem"
-version = "0.1.0"
+version = "0.1.1"
 description = "Explainable multi-fidelity molecular evidence and decision platform"
 authors = [{ name = "Adriano Marques Gonçalves (UNIARA)" }]
 license = { file = "LICENSE" }

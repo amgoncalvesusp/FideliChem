@@ -1,8 +1,8 @@
 ; Inno Setup definition for the Windows installer.
-; CI supplies /DAppVersion=0.1.0 from the release tag.
+; CI supplies /DAppVersion=0.1.1 from the release tag.
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 
 [Setup]

@@ -16,7 +16,7 @@ from fidelichem.exports.manifest import _compute_sha256
 @pytest.mark.smoke
 def test_package_metadata_and_version() -> None:
     assert hasattr(fidelichem, "__version__")
-    assert fidelichem.__version__ == "0.1.0"
+    assert fidelichem.__version__ == "0.1.1"
 
 
 @pytest.mark.smoke
