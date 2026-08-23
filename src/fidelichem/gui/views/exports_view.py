@@ -6,6 +6,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -55,6 +56,12 @@ class ExportsView(QWidget):
         self.path_input.setPlaceholderText("Output destination path")
         self.path_input.textChanged.connect(self._sync_action_state)
         form_layout.addWidget(self.path_input)
+
+        self.browse_btn = QPushButton("Choose Folder", self)
+        self.browse_btn.setAccessibleName("Choose export folder")
+        self.browse_btn.setProperty("role", "secondary")
+        self.browse_btn.clicked.connect(self._on_browse_clicked)
+        form_layout.addWidget(self.browse_btn)
 
         self.export_btn = QPushButton("Generate Export", self)
         self.export_btn.setProperty("role", "primary")
@@ -108,6 +115,15 @@ class ExportsView(QWidget):
         }
         self.export_requested.emit(fmt, dest, options)
         self.status_label.setText(f"Export requested for format {fmt}")
+
+    def _on_browse_clicked(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Choose export folder",
+            self.path_input.text().strip(),
+        )
+        if path:
+            self.path_input.setText(path)
 
     def set_export_status(self, message: str) -> None:
         """Update export status message."""

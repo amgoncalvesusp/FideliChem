@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -61,6 +62,18 @@ class ImportView(QWidget):
         self.path_input.textChanged.connect(self._sync_action_state)
         adapter_layout.addWidget(self.path_input)
 
+        self.browse_folder_btn = QPushButton("Choose Folder", self)
+        self.browse_folder_btn.setAccessibleName("Choose evidence folder")
+        self.browse_folder_btn.setProperty("role", "secondary")
+        self.browse_folder_btn.clicked.connect(self._on_browse_folder_clicked)
+        adapter_layout.addWidget(self.browse_folder_btn)
+
+        self.browse_file_btn = QPushButton("Choose File", self)
+        self.browse_file_btn.setAccessibleName("Choose evidence file")
+        self.browse_file_btn.setProperty("role", "secondary")
+        self.browse_file_btn.clicked.connect(self._on_browse_file_clicked)
+        adapter_layout.addWidget(self.browse_file_btn)
+
         self.probe_btn = QPushButton("Probe Data", self)
         self.probe_btn.setProperty("role", "secondary")
         self.probe_btn.clicked.connect(self._on_probe_clicked)
@@ -91,6 +104,26 @@ class ImportView(QWidget):
         path = self.path_input.text().strip()
         if path:
             self.probe_requested.emit(adapter, path)
+
+    def _on_browse_folder_clicked(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Choose evidence folder",
+            self.path_input.text().strip(),
+        )
+        if path:
+            self.path_input.setText(path)
+
+    def _on_browse_file_clicked(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Choose evidence file",
+            self.path_input.text().strip(),
+            "Evidence files (*.csv *.tsv *.json *.jsonl *.xlsx *.xls *.mol2);;"
+            "All files (*)",
+        )
+        if path:
+            self.path_input.setText(path)
 
     def _on_import_clicked(self) -> None:
         adapter = self.adapter_combo.currentText()

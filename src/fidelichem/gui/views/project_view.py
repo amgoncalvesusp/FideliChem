@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -46,6 +47,12 @@ class ProjectView(QWidget):
         self.path_input.setPlaceholderText("Storage folder path")
         form_layout.addWidget(self.path_input)
 
+        self.browse_btn = QPushButton("Choose Folder", self)
+        self.browse_btn.setAccessibleName("Choose project folder")
+        self.browse_btn.setProperty("role", "secondary")
+        self.browse_btn.clicked.connect(self._on_browse_clicked)
+        form_layout.addWidget(self.browse_btn)
+
         self.create_btn = QPushButton("Create Project", self)
         self.create_btn.setProperty("role", "primary")
         self.create_btn.clicked.connect(self._on_create_clicked)
@@ -67,6 +74,15 @@ class ProjectView(QWidget):
         if name:
             self.project_created.emit(name, path)
             self.status_label.setText(f"Active Project: {name}")
+
+    def _on_browse_clicked(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Choose project folder",
+            self.path_input.text().strip(),
+        )
+        if path:
+            self.path_input.setText(path)
 
     def _on_open_clicked(self) -> None:
         path = self.path_input.text().strip()

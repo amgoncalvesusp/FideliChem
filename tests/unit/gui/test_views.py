@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
+import fidelichem.gui.views.exports_view as exports_view_module
+import fidelichem.gui.views.import_view as import_view_module
+import fidelichem.gui.views.project_view as project_view_module
 from fidelichem.gui.views.compounds_view import CompoundsView
 from fidelichem.gui.views.decision_view import DecisionView
 from fidelichem.gui.views.docking_view import DockingView
@@ -24,6 +30,69 @@ def test_project_view_lifecycle(qtbot: QtBot) -> None:
     view.set_active_project("TestProj", "/path/to/proj")
     assert "TestProj" in view.status_label.text()
     assert view.name_input.text() == "TestProj"
+
+
+@pytest.mark.gui
+def test_project_view_browse_selects_workspace_folder(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    view = ProjectView()
+    qtbot.addWidget(view)
+    monkeypatch.setattr(
+        project_view_module.QFileDialog,
+        "getExistingDirectory",
+        lambda *args: str(tmp_path),
+    )
+
+    qtbot.mouseClick(view.browse_btn, Qt.MouseButton.LeftButton)
+
+    assert Path(view.path_input.text()) == tmp_path
+
+
+@pytest.mark.gui
+def test_import_view_browse_supports_folders_and_files(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    view = ImportView()
+    qtbot.addWidget(view)
+    source_file = tmp_path / "evidence.csv"
+    source_file.write_text("id,score\nC1,1.0\n", encoding="utf-8")
+    monkeypatch.setattr(
+        import_view_module.QFileDialog,
+        "getExistingDirectory",
+        lambda *args: str(tmp_path),
+    )
+    monkeypatch.setattr(
+        import_view_module.QFileDialog,
+        "getOpenFileName",
+        lambda *args: (str(source_file), "CSV (*.csv)"),
+    )
+
+    qtbot.mouseClick(view.browse_folder_btn, Qt.MouseButton.LeftButton)
+    assert Path(view.path_input.text()) == tmp_path
+    qtbot.mouseClick(view.browse_file_btn, Qt.MouseButton.LeftButton)
+
+    assert Path(view.path_input.text()) == source_file
+    assert view.probe_btn.isEnabled()
+    assert view.import_btn.isEnabled()
+
+
+@pytest.mark.gui
+def test_exports_view_browse_selects_output_folder(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    view = ExportsView()
+    qtbot.addWidget(view)
+    destination = tmp_path / "exports"
+    monkeypatch.setattr(
+        exports_view_module.QFileDialog,
+        "getExistingDirectory",
+        lambda *args: str(destination),
+    )
+
+    qtbot.mouseClick(view.browse_btn, Qt.MouseButton.LeftButton)
+
+    assert Path(view.path_input.text()) == destination
 
 
 @pytest.mark.gui
