@@ -98,3 +98,9 @@ for the frozen boundaries and non-goals.
 
 The full product architecture and phased roadmap are documented in
 `FideliChem_PLANO_CODEX.md`.
+
+## User guide
+
+See [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) for the complete desktop
+workflow, including how to create or open an active workspace before importing
+evidence.
