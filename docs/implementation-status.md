@@ -5,13 +5,27 @@ Atualize-o ao concluir cada tarefa ou sempre que o trabalho precisar ser interro
 
 ## Estado atual
 
-- Branch de execução: `codex/fix-imports-v0.1.1`
-- Base integrada: `feat/phase-15-export-reproducibility`
+- Branch de execução: `fix/release-export-integrity`
+- Base desta correção: release `v0.1.1`, commit `9997a28`.
 - Última fase concluída: **Fase 16 — Packaging e Release (Todas as Fases 0–16 Concluídas)**
-- Etapa ativa: correção pós-release de importação (XLSX/TXT/MOL2 e roteamento GUI).
-- Próxima ação exata: publicar a revisão corrigida que substitui o conteúdo do
-  release `v0.1.1`.
+- Etapa ativa: correção pós-release da integridade das exportações tabulares.
+- Próxima ação exata: revisar e registrar o commit local; publicação não autorizada.
 - Bloqueios: nenhum.
+
+## Correção de integridade das exportações — 2026-09-07
+
+- CSV, XLSX e Parquet usam a união ordenada das colunas de todas as famílias
+  de evidência; campos ausentes continuam ausentes, sem conversão para zero.
+- CSV/XLSX representam estruturas aninhadas como JSON. XLSX mantém textos
+  começados por `=` como texto e expõe caracteres XML inválidos como escapes
+  Unicode visíveis. Células acima de 32767 caracteres falham com orientação
+  para exportar JSON, evitando truncamento silencioso.
+- JSON e os registros científicos originais permanecem inalterados.
+- TDD: quatro regressões inicialmente falharam. Validação Windows: 620 testes,
+  cobertura com branches de 86,76%, Ruff e mypy aprovados; lock e dependências
+  compatíveis. Auditoria do ambiente principal sem vulnerabilidades conhecidas.
+- Parquet real validado com PyArrow 25.0.1 em diretório de dependências de teste
+  separado. Sem alteração da versão, tag, release ou checkout principal.
 
 ## Progresso por fase
 

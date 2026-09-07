@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -111,3 +112,41 @@ def test_export_options_filter_persisted_evidence_without_mutating_snapshot(
     assert result.total_records == 1
     assert exported == [{"evidence_type": "target", "name": "Target A"}]
     assert records == original
+
+
+def test_mixed_evidence_survives_excel_and_csv_with_manifest(tmp_path: Path) -> None:
+    import openpyxl
+
+    records = [
+        {"evidence_type": "target", "name": "Target A"},
+        {"evidence_type": "score", "raw_value": -7.2, "score_key": "vina"},
+        {"evidence_type": "md_run", "parameters": {"seed": 42}},
+    ]
+    original = json.dumps(records)
+    result = ExportEngine().export_dataset(
+        project_name="Mixed",
+        records=records,
+        output_dir=tmp_path,
+        options=ExportOptions(formats=(ExportFormat.CSV, ExportFormat.XLSX)),
+    )
+    with (tmp_path / "Mixed_candidates.csv").open(
+        encoding="utf-8", newline=""
+    ) as stream:
+        rows = list(csv.DictReader(stream))
+    assert rows[1]["raw_value"] == "-7.2"
+    assert json.loads(rows[2]["parameters"]) == {"seed": 42}
+    workbook = openpyxl.load_workbook(tmp_path / "Mixed_candidates.xlsx")
+    headers, *values = list(workbook.active.values)
+    xlsx_rows = [dict(zip(headers, row, strict=True)) for row in values]
+    assert xlsx_rows[1]["raw_value"] == -7.2
+    assert xlsx_rows[0]["raw_value"] is None
+    workbook.close()
+    manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
+    for artifact in manifest["exported_files"]:
+        assert (
+            hashlib.sha256(
+                (tmp_path / artifact["relative_path"]).read_bytes()
+            ).hexdigest()
+            == artifact["sha256"]
+        )
+    assert json.dumps(records) == original

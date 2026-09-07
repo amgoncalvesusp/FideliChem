@@ -66,7 +66,8 @@ def test_xlsx_fallback_escapes_xml_content(
     ElementTree.parse(xlsx_path)
 
 
-def test_parquet_fallback_returns_actual_csv_path(tmp_path: Path) -> None:
+def test_parquet_fallback_returns_actual_csv_path(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "pyarrow", None)
     parquet_path = tmp_path / "compounds.parquet"
     result = export_to_parquet([{"compound_id": "C01"}], parquet_path)
 
